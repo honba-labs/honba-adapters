@@ -20,10 +20,11 @@ jobs:
           [ -f requirements.txt ] && pip install -r requirements.txt || true
           [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt || true
           pip install pytest
+          pip install -e "shared[dev]"
       - name: syntax check all sources
         run: |
           find . -name '*.py' -not -path './.venv/*' -print0 \
             | xargs -0 -r -n1 python -m py_compile
       - name: pytest
         run: |
-          if [ -d tests ]; then pytest -q tests/; else echo "no tests dir"; fi
+          if [ -d shared/tests ]; then pytest -q shared/tests; else echo "no tests dir"; fi
