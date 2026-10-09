@@ -12,6 +12,7 @@ import asyncio
 import os
 import sys
 import uuid
+from typing import Any
 
 from honba.adapters import (
     Product,
@@ -33,17 +34,20 @@ async def run_smoke_test(args: argparse.Namespace) -> int:
     print(f"Mode: {mode_str.upper()}")
     print("=" * 65)
 
-    if is_live and os.environ.get("HONBA_LIVE_SMOKE_TEST") != "1":
-        print(
-            "\n[SAFETY ERROR] Live smoke test requires HONBA_LIVE_SMOKE_TEST=1 environment "
-            "variable to prevent unintentional live execution against real broker accounts.",
-            file=sys.stderr,
-        )
-        print(
-            "Example: HONBA_LIVE_SMOKE_TEST=1 python scripts/smoke_test.py --mode live ...\n"
-        )
-        return 1
+    if is_live:
+        guard = os.environ.get("HONBA_LIVE_SMOKE_TEST", "").strip()
+        if guard != "1":
+            print(
+                "[GUARD] Refusing to run in LIVE mode without HONBA_LIVE_SMOKE_TEST=1.",
+                file=sys.stderr,
+            )
+            print(
+                "        Set export HONBA_LIVE_SMOKE_TEST=1 to acknowledge live account access.",
+                file=sys.stderr,
+            )
+            return 2
 
+    # Verify adapter registration
     adapters = available_adapters()
     if adapter_name not in adapters:
         print(
@@ -63,7 +67,7 @@ async def run_smoke_test(args: argparse.Namespace) -> int:
 
     print(f"1. Resolving adapter {adapter_name!r} via registry...")
     try:
-        adapter = resolve_adapter(adapter_name, **config_kwargs)
+        adapter: Any = resolve_adapter(adapter_name, **config_kwargs)
     except Exception as e:  # noqa: BLE001
         print(f"[FAIL] Failed to instantiate adapter: {e}", file=sys.stderr)
         return 1

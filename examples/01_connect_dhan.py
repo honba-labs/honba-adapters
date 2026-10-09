@@ -38,9 +38,7 @@ async def _run_async(adapter: str = "fake", **config: Any) -> dict[str, Any]:
                 "user_id": session.user_id,
                 "mode": session.mode.value,
                 "accounts": list(session.accounts),
-                "expires_at": session.expires_at.isoformat()
-                if session.expires_at
-                else None,
+                "expires_at": session.expires_at,
             },
             "capabilities": {
                 "name": caps.name,

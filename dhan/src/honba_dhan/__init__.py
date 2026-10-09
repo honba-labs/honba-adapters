@@ -95,8 +95,8 @@ class DhanAdapter(DhanExecutionMixin, DhanMarketDataMixin, Adapter):
                 )
             else:
                 config = DhanConfig.live(
-                    client_id=client_id,
-                    access_token=access_token,
+                    client_id=str(client_id or ""),
+                    access_token=str(access_token or ""),
                     **kwargs,
                 )
 

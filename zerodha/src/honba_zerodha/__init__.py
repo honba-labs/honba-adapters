@@ -94,8 +94,8 @@ class ZerodhaAdapter(ZerodhaExecutionMixin, ZerodhaMarketDataMixin, Adapter):
                 )
             else:
                 config = ZerodhaConfig.live(
-                    api_key=api_key,
-                    access_token=access_token,
+                    api_key=str(api_key or ""),
+                    access_token=str(access_token or ""),
                     **kwargs,
                 )
 

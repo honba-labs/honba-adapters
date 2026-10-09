@@ -71,7 +71,7 @@ def serialize_trade(trade: Trade) -> dict[str, Any]:
 
 
 async def _run_async(adapter: str = "fake", **config: Any) -> dict[str, Any]:
-    inst = resolve_adapter(adapter, **config)
+    inst: Any = resolve_adapter(adapter, **config)
     await inst.connect()
 
     try:
@@ -153,12 +153,12 @@ def run(adapter: str = "fake", **config: Any) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Place a sequence of paper orders and record the lifecycle results."
+        description="Place a deterministic series of orders against an adapter in paper mode."
     )
     parser.add_argument(
         "--adapter",
         default="fake",
-        help="Adapter name (default: fake)",
+        help="Adapter name to connect to (default: fake)",
     )
     parser.add_argument(
         "--out",
@@ -167,12 +167,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    result = run(adapter=args.adapter)
 
-    text = json.dumps(result, indent=2) + "\n"
+    result = run(adapter=args.adapter)
+    text = json.dumps(result, indent=2)
     if args.out:
         Path(args.out).write_text(text)
-    sys.stdout.write(text)
+    print(text)
     return 0
 
 
