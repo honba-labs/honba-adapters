@@ -15,7 +15,7 @@ from honba.adapters import (
     Product,
     available_adapters,
     register_adapter,
-    resolve_adapter,
+    resolve_execution_adapter,
 )
 from honba.adapters.testing import FakeAdapter
 from honba.domain.instrument import InstrumentId
@@ -71,7 +71,7 @@ def serialize_trade(trade: Trade) -> dict[str, Any]:
 
 
 async def _run_async(adapter: str = "fake", **config: Any) -> dict[str, Any]:
-    inst: Any = resolve_adapter(adapter, **config)
+    inst = resolve_execution_adapter(adapter, **config)
     await inst.connect()
 
     try:

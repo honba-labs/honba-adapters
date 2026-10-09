@@ -12,13 +12,13 @@ import asyncio
 import os
 import sys
 import uuid
-from typing import Any
 
 from honba.adapters import (
+    FullAdapterClient,
     Product,
     RunMode,
     available_adapters,
-    resolve_adapter,
+    resolve_full_adapter,
 )
 from honba.domain.instrument import InstrumentId
 from honba.domain.order import OrderIntent, OrderStatus
@@ -67,7 +67,7 @@ async def run_smoke_test(args: argparse.Namespace) -> int:
 
     print(f"1. Resolving adapter {adapter_name!r} via registry...")
     try:
-        adapter: Any = resolve_adapter(adapter_name, **config_kwargs)
+        adapter: FullAdapterClient = resolve_full_adapter(adapter_name, **config_kwargs)
     except Exception as e:  # noqa: BLE001
         print(f"[FAIL] Failed to instantiate adapter: {e}", file=sys.stderr)
         return 1
