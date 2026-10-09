@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
+import re
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from honba.adapters.models import (
@@ -32,7 +34,43 @@ from honba_zerodha.constants import (
     ZERODHA_REVERSE_SIDE_MAP,
     ZERODHA_SIDE_MAP,
     ZERODHA_STATUS_MAP,
+    ZERODHA_TIF_MAP,
 )
+
+_IST = timezone(timedelta(hours=5, minutes=30))
+_KITE_TS = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", re.ASCII)
+
+
+def parse_kite_timestamp(text: str) -> int:
+    """Parse ``YYYY-MM-DD HH:MM:SS`` (IST, +05:30) into UTC unix nanoseconds.
+
+    Strict: any other shape, an impossible calendar date or a moment before the unix epoch
+    raises ``ValueError``.
+    """
+    if not _KITE_TS.fullmatch(text):
+        raise ValueError(f"invalid Kite timestamp {text!r}")
+    try:
+        moment = datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=_IST)
+    except ValueError as e:
+        raise ValueError(f"invalid Kite timestamp {text!r}") from e
+    delta = moment - datetime(1970, 1, 1, tzinfo=timezone.utc)
+    secs = delta.days * 86_400 + delta.seconds
+    if secs < 0:
+        raise ValueError(f"Kite timestamp {text!r} is before the unix epoch")
+    return secs * 1_000_000_000
+
+
+def kite_tag(client_order_id: str) -> str:
+    """Kite order tag: ASCII alphanumerics of the id, at most 20 characters, ``HONBA`` if empty."""
+    tag = "".join(c for c in client_order_id if c.isascii() and c.isalnum())[:20]
+    return tag or "HONBA"
+
+
+def whole_quantity(quantity: float) -> int:
+    """Return ``quantity`` as an int; it must be a finite, positive whole number."""
+    if not (math.isfinite(quantity) and quantity > 0 and quantity == math.floor(quantity)):
+        raise ValueError(f"quantity must be a positive whole number, got {quantity}")
+    return int(quantity)
 
 
 def parse_funds(data: dict[str, Any]) -> Funds:
@@ -155,6 +193,23 @@ def parse_order(
     )
     avg_price = float(item.get("average_price", 0.0) or 0.0)
 
+    if (
+        order_status_raw == "OPEN"
+        and item.get("filled_quantity") is not None
+        and 0.0 < filled_qty < qty
+    ):
+        status = OrderStatus.PARTIALLY_FILLED
+
+    ts_event = 0
+    for key in ("exchange_update_timestamp", "order_timestamp"):
+        raw_ts = item.get(key)
+        if isinstance(raw_ts, str):
+            try:
+                ts_event = parse_kite_timestamp(raw_ts)
+                break
+            except ValueError:
+                continue
+
     reject_reason = None
     if status is OrderStatus.REJECTED:
         reject_reason = str(
@@ -165,6 +220,8 @@ def parse_order(
             filled_qty = qty
         if avg_price <= 0.0:
             avg_price = limit_price or 1.0
+    elif status is OrderStatus.PARTIALLY_FILLED and avg_price <= 0.0:
+        avg_price = limit_price or 1.0
 
     return OrderReport(
         order_id=order_id,
@@ -180,6 +237,7 @@ def parse_order(
         filled_quantity=filled_qty,
         average_price=avg_price if filled_qty > 0 else 0.0,
         reject_reason=reject_reason,
+        ts_event=ts_event,
     )
 
 
@@ -200,11 +258,21 @@ def parse_trade(
     price = float(item.get("average_price", item.get("price", 0.0)))
     brokerage = float(item.get("brokerage", 0.0))
 
+    # Phantom-trade guard: a fill must have a positive size and a positive finite price, and a
+    # fill timestamp, when the broker sends one, must parse.
+    if not (math.isfinite(qty) and qty > 0):
+        raise ValueError(f"trade quantity must be positive, got {qty}")
+    if not (math.isfinite(price) and price > 0):
+        raise ValueError(f"trade price must be positive, got {price}")
+    fill_ts = item.get("fill_timestamp")
+    ts = parse_kite_timestamp(fill_ts) if fill_ts is not None else 0
+
     return Trade(
         instrument_id=inst_id,
         side=side,
         quantity=qty,
         price=price,
+        ts=ts,
         order_id=order_id,
         costs=Money.from_major(brokerage, Currency.INR),
     )
@@ -308,15 +376,18 @@ def build_order_payload(
     txn_type = ZERODHA_SIDE_MAP.get(intent.side, "BUY")
     otype = ZERODHA_ORDER_TYPE_MAP.get(intent.order_type, "MARKET")
     prod = ZERODHA_PRODUCT_MAP.get(product, "CNC")
+    validity = ZERODHA_TIF_MAP.get(intent.time_in_force)
+    if validity is None:
+        raise ValueError(f"time in force {intent.time_in_force.value} is not supported by Zerodha")
 
     payload: dict[str, Any] = {
         "tradingsymbol": tradingsymbol,
         "exchange": exchange,
         "transaction_type": txn_type,
         "order_type": otype,
-        "quantity": int(intent.quantity),
+        "quantity": whole_quantity(intent.quantity),
         "product": prod,
-        "validity": "DAY",
+        "validity": validity,
     }
 
     if intent.price is not None and intent.order_type in (
@@ -332,6 +403,6 @@ def build_order_payload(
         payload["trigger_price"] = float(intent.trigger_price)
 
     if client_order_id:
-        payload["tag"] = client_order_id[:20]
+        payload["tag"] = kite_tag(client_order_id)
 
     return payload

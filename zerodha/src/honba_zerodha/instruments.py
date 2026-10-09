@@ -86,8 +86,18 @@ class ZerodhaInstrumentMaster:
             self.register(scrip)
 
     def register(self, record: ZerodhaInstrumentRecord) -> None:
-        """Register a single instrument mapping."""
+        """Register a single instrument mapping.
+
+        Any stale entry for the same token or the same instrument is removed first, so both
+        lookup directions always agree (later registrations win).
+        """
         inst_id = InstrumentId(record.tradingsymbol, record.exchange)
+        old_by_token = self._by_token.pop(record.instrument_token, None)
+        if old_by_token is not None:
+            self._by_id.pop(old_by_token.instrument_id, None)
+        old_by_id = self._by_id.pop(inst_id, None)
+        if old_by_id is not None:
+            self._by_token.pop(old_by_id.instrument_token, None)
         self._by_id[inst_id] = record
         self._by_token[record.instrument_token] = record
 
@@ -139,8 +149,8 @@ class ZerodhaInstrumentMaster:
                 matches.append(rec.to_instrument())
         return matches
 
-    def load_from_csv(self, csv_data_or_path: str | Path) -> int:
-        """Parse Zerodha daily instruments CSV dump and populate mappings."""
+    def load_from_csv(self, csv_data_or_path: str | Path, *, strict: bool = False) -> int:
+        """Parse Zerodha daily instruments CSV dump (text or file path) and populate mappings."""
         content: str
         if isinstance(csv_data_or_path, Path) or (
             isinstance(csv_data_or_path, str)
@@ -150,14 +160,30 @@ class ZerodhaInstrumentMaster:
             content = Path(csv_data_or_path).read_text(encoding="utf-8")
         else:
             content = str(csv_data_or_path)
+        return self.load_from_csv_text(content, strict=strict)
 
+    def load_from_csv_text(self, content: str, *, strict: bool = False) -> int:
+        """Populate mappings from CSV text; later duplicate rows replace earlier ones.
+
+        A header without ``instrument_token``, ``tradingsymbol`` and ``exchange`` always raises
+        ``ValueError``. Malformed rows are skipped, or raise ``ValueError`` when ``strict``.
+        """
         reader = csv.DictReader(StringIO(content))
+        missing = [
+            c
+            for c in ("instrument_token", "tradingsymbol", "exchange")
+            if c not in (reader.fieldnames or [])
+        ]
+        if missing:
+            raise ValueError(f"invalid instruments csv: missing column {missing[0]}")
         count = 0
-        for row in reader:
+        for number, row in enumerate(reader, start=1):
             token_str = row.get("instrument_token")
             symbol = row.get("tradingsymbol")
             exchange = row.get("exchange")
             if not token_str or not symbol or not exchange:
+                if strict:
+                    raise ValueError(f"invalid instruments csv: row {number}: missing field")
                 continue
 
             try:
@@ -173,9 +199,11 @@ class ZerodhaInstrumentMaster:
                     tick_size=float(row.get("tick_size", 0.05) or 0.05),
                     instrument_type=str(row.get("instrument_type", "EQ")),
                 )
-                self.register(record)
-                count += 1
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as e:
+                if strict:
+                    raise ValueError(f"invalid instruments csv: row {number}: bad value") from e
                 continue
+            self.register(record)
+            count += 1
 
         return count

@@ -5,6 +5,7 @@ Provides full lifecycle integration, order execution, market data, and KiteTicke
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -77,6 +78,7 @@ class ZerodhaAdapter(ZerodhaExecutionMixin, ZerodhaMarketDataMixin, Adapter):
         *,
         http_transport: httpx.AsyncBaseTransport | None = None,
         instruments: ZerodhaInstrumentMaster | None = None,
+        feed: ZerodhaFeedClient | None = None,
         **kwargs: Any,
     ) -> None:
         if config is None:
@@ -111,11 +113,13 @@ class ZerodhaAdapter(ZerodhaExecutionMixin, ZerodhaMarketDataMixin, Adapter):
         self._session_info: SessionInfo | None = None
 
         self._http = ZerodhaHttpClient(config, transport=http_transport)
-        self._feed: ZerodhaFeedClient | None = None
+        self._feed: ZerodhaFeedClient | None = feed
 
         # State tracking for idempotency & orders
         self._orders_by_id = {}
         self._orders_by_client_id = {}
+        self._ambiguous: set[str] = set()
+        self._emitted_trade_ids: set[str] = set()
         self._subscriptions: dict[str, tuple[Subscription, StreamCallback]] = {}
 
     def capabilities(self) -> AdapterCapabilities:
@@ -149,6 +153,45 @@ class ZerodhaAdapter(ZerodhaExecutionMixin, ZerodhaMarketDataMixin, Adapter):
             accounts=(user,),
         )
         return self._session_info
+
+    async def generate_session(self, request_token: str, api_secret: str | None = None) -> str:
+        """Exchange a login ``request_token`` for an access token and return the Kite user id.
+
+        ``api_secret`` defaults to the configured one. The secret is only used to compute the
+        request checksum and is never sent or logged.
+        """
+        secret = api_secret or self._config.api_secret
+        if not secret:
+            raise AdapterError("an api secret is required to generate a session")
+        user_id = await self._http.generate_session(request_token, secret)
+        token = self._http.access_token or ""
+        self._config = replace(self._config, access_token=token, user_id=user_id)
+        if self._feed is not None:  # its URL carries the old token; rebuilt on next subscribe
+            await self._feed.stop()
+            self._feed = None
+        return user_id
+
+    async def refresh_instruments(self, exchange: str | None = None) -> int:
+        """Download Kite's daily instruments dump and load it into the token map.
+
+        Returns the number of instruments loaded. ``exchange`` limits the dump to one exchange.
+        """
+        path = f"/instruments/{exchange}" if exchange else "/instruments"
+        text = await self._http.get(path, pool="data")
+        if not isinstance(text, str):
+            raise AdapterError("Zerodha instruments dump was not CSV")
+        return self._instruments.load_from_csv_text(text)
+
+    async def _ensure_feed(self) -> ZerodhaFeedClient | None:
+        """The ticker client; created and started on first use for live, networked adapters."""
+        if (
+            self._feed is None
+            and self._config.mode == RunMode.LIVE
+            and self._http_transport is None
+        ):
+            self._feed = ZerodhaFeedClient(self._config, self._instruments)
+            await self._feed.start()
+        return self._feed
 
     async def disconnect(self) -> None:
         """Release all connections and transports."""

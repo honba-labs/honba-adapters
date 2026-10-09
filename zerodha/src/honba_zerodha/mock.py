@@ -10,6 +10,14 @@ import httpx
 
 __all__ = ["make_zerodha_mock_transport"]
 
+_INSTRUMENTS_CSV = (
+    "instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,"
+    "lot_size,instrument_type,segment,exchange\n"
+    "738561,2885,RELIANCE,RELIANCE INDUSTRIES,0,,0,0.05,1,EQ,NSE,NSE\n"
+    "408065,1594,INFY,INFOSYS,0,,0,0.05,1,EQ,NSE,NSE\n"
+    "256265,1001,NIFTY 50,NIFTY 50,0,,0,0,0,EQ,INDICES,NSE\n"
+)
+
 
 def make_zerodha_mock_transport() -> httpx.MockTransport:
     """Creates an in-memory HTTP mock transport responding as Kite Connect v3 REST API."""
@@ -51,6 +59,20 @@ def make_zerodha_mock_transport() -> httpx.MockTransport:
                     },
                 },
             )
+
+        if path.endswith("/session/token") and method == "POST":
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {"access_token": "newtok", "user_id": "AB1234"},
+                },
+            )
+
+        if path == "/instruments" or (
+            path.startswith("/instruments/") and "/instruments/historical" not in path
+        ):
+            return httpx.Response(200, text=_INSTRUMENTS_CSV, headers={"content-type": "text/csv"})
 
         if path.endswith("/quote"):
             return httpx.Response(
@@ -201,6 +223,7 @@ def make_zerodha_mock_transport() -> httpx.MockTransport:
                             "transaction_type": "BUY",
                             "quantity": 1.0,
                             "average_price": 2450.0,
+                            "fill_timestamp": "2024-01-02 09:15:30",
                             "brokerage": 20.0,
                         }
                     ],

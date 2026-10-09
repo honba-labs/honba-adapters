@@ -171,10 +171,12 @@ class ZerodhaMarketDataMixin:
 
         sub_id = f"kite-sub-{uuid.uuid4().hex[:8]}"
         subscription = Subscription(id=sub_id, instruments=instruments, mode=mode)
-        self._subscriptions[sub_id] = (subscription, callback)
 
-        if self._feed is not None:
-            await self._feed.subscribe(instruments, mode=mode, callback=callback)
+        # Tell the ticker first: a failure leaves no stale subscription behind.
+        feed = await self._ensure_feed()  # type: ignore[attr-defined]
+        if feed is not None:
+            await feed.subscribe(instruments, mode=mode, callback=callback)
+        self._subscriptions[sub_id] = (subscription, callback)
 
         return subscription
 
@@ -184,6 +186,7 @@ class ZerodhaMarketDataMixin:
         if subscription_id not in self._subscriptions:
             raise AdapterError(f"unknown subscription id '{subscription_id}'")
 
-        sub, callback = self._subscriptions.pop(subscription_id)
+        sub, callback = self._subscriptions[subscription_id]
         if self._feed is not None:
             await self._feed.unsubscribe(sub.instruments, callback=callback)
+        del self._subscriptions[subscription_id]

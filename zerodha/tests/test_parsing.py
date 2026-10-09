@@ -217,4 +217,5 @@ class TestZerodhaParsing:
         assert payload["product"] == "CNC"
         assert payload["price"] == 2450.5
         assert payload["quantity"] == 25
-        assert payload["tag"] == "CID-12345"
+        # Kite tags are alphanumeric only (ported kite_tag rule), so the dash is dropped.
+        assert payload["tag"] == "CID12345"

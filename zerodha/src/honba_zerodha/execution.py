@@ -4,20 +4,30 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
-from honba.adapters.errors import AdapterError, CapabilityError
+from honba.adapters.errors import (
+    AdapterError,
+    AdapterFatalError,
+    CapabilityError,
+    SessionError,
+)
 from honba.adapters.models import Funds, Holding, MarginReport, OrderReport, Product
 from honba.domain.instrument import InstrumentId
 from honba.domain.order import OrderIntent, OrderStatus
 from honba.domain.position import Position
 from honba.domain.trade import Trade
+from honba_adapters_shared.errors import RateLimitExceeded
 
 from honba_zerodha.constants import (
     ZERODHA_ORDER_TYPE_MAP,
     ZERODHA_PRODUCT_MAP,
+    ZERODHA_SIDE_MAP,
     ZERODHA_STATUS_MAP,
+    ZERODHA_TIF_MAP,
 )
+from honba_zerodha.http import ZerodhaRejectedError, ZerodhaTransportError
 from honba_zerodha.parsing import (
     build_order_payload,
     parse_funds,
@@ -26,6 +36,7 @@ from honba_zerodha.parsing import (
     parse_order,
     parse_position,
     parse_trade,
+    whole_quantity,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +55,8 @@ class ZerodhaExecutionMixin:
     _instruments: ZerodhaInstrumentMaster
     _orders_by_id: dict[str, OrderReport]
     _orders_by_client_id: dict[str, OrderReport]
+    _ambiguous: set[str]
+    _emitted_trade_ids: set[str]
 
     def _id_resolver(self, symbol: str, exchange: str) -> InstrumentId | None:
         inst = InstrumentId(symbol, exchange)
@@ -69,9 +82,23 @@ class ZerodhaExecutionMixin:
                 f"order type {intent.order_type.value} is not supported by Zerodha"
             )
 
+        if intent.time_in_force not in ZERODHA_TIF_MAP:
+            raise CapabilityError(
+                f"time in force {intent.time_in_force.value} is not supported by Zerodha"
+            )
+
         # Idempotency check: if already placed with client_order_id, return cached report
         if client_order_id and client_order_id in self._orders_by_client_id:
             return self._orders_by_client_id[client_order_id]
+
+        # Invalid requests never reach the network.
+        try:
+            whole_quantity(intent.quantity)
+        except ValueError as e:
+            raise AdapterError(str(e)) from e
+        for label, value in (("price", intent.price), ("trigger price", intent.trigger_price)):
+            if value is not None and not (math.isfinite(value) and value > 0):
+                raise AdapterError(f"{label} must be positive, got {value}")
 
         # Verify instrument resolution
         token = self._instruments.resolve_token(intent.instrument_id)
@@ -90,16 +117,32 @@ class ZerodhaExecutionMixin:
             exchange=exchange,
         )
 
+        if client_order_id and client_order_id in self._ambiguous:
+            # An earlier attempt may have reached the venue: adopt it if its tag is there.
+            adopted = await self._adopt_tagged_order(intent, product, str(payload["tag"]))
+            if adopted is not None:
+                self._ambiguous.discard(client_order_id)
+                self._orders_by_id[adopted.order_id] = adopted
+                self._orders_by_client_id[client_order_id] = adopted
+                return adopted
+
         try:
             resp = await self._http.post(
                 "/orders/regular",
                 pool="orders",
                 data=payload,
             )
+        except (ZerodhaTransportError, RateLimitExceeded):
+            # The outcome is unknown: the order may exist. Reconcile on the next attempt.
+            if client_order_id:
+                self._ambiguous.add(client_order_id)
+            raise
+        except (SessionError, AdapterFatalError):
+            raise
         except AdapterError as e:
-            # If server returned an operational error that represents an order reject
+            # A Kite refusal is a REJECTED report; so is legacy reject-like error text.
             err_text = str(e)
-            if (
+            if isinstance(e, ZerodhaRejectedError) or (
                 "REJECT" in err_text.upper()
                 or "RMS" in err_text.upper()
                 or "INSUFFICIENT" in err_text.upper()
@@ -119,6 +162,9 @@ class ZerodhaExecutionMixin:
                     self._orders_by_client_id[client_order_id] = report
                 return report
             raise
+
+        if client_order_id:
+            self._ambiguous.discard(client_order_id)
 
         order_id = str(resp.get("order_id") if isinstance(resp, dict) else resp or "")
         order_status_str = str(
@@ -167,6 +213,71 @@ class ZerodhaExecutionMixin:
 
         return report
 
+    async def _adopt_tagged_order(
+        self, intent: OrderIntent, product: Product, tag: str
+    ) -> OrderReport | None:
+        """Find a venue order carrying ``tag`` (left by an ambiguous earlier submit)."""
+        resp = await self._http.get("/orders", pool="orders")
+        rows = (
+            resp
+            if isinstance(resp, list)
+            else (resp.get("data", []) if isinstance(resp, dict) else [])
+        )
+        for rec in rows:
+            if not isinstance(rec, dict) or rec.get("tag") != tag or not rec.get("order_id"):
+                continue
+            try:
+                return parse_order(rec, self._id_resolver)
+            except (KeyError, ValueError, TypeError):
+                return OrderReport(
+                    order_id=str(rec["order_id"]),
+                    instrument_id=intent.instrument_id,
+                    side=intent.side,
+                    quantity=intent.quantity,
+                    status=OrderStatus.ACCEPTED,
+                    product=product,
+                    order_type=intent.order_type,
+                    price=intent.price,
+                    trigger_price=intent.trigger_price,
+                )
+        return None
+
+    async def poll_fills(self) -> list[Trade]:
+        """Fills of orders this adapter placed (or adopted) that have not been reported yet.
+
+        Reads ``GET /trades``, de-duplicates by Kite trade id, ignores trades of orders it does
+        not know, falls back to the order's side when the row has none, and skips phantom rows
+        (non-positive size or price, unparseable timestamp).
+        """
+        self.require_connected()  # type: ignore[attr-defined]
+        resp = await self._http.get("/trades", pool="orders")
+        rows = (
+            resp
+            if isinstance(resp, list)
+            else (resp.get("data", []) if isinstance(resp, dict) else [])
+        )
+        fills: list[Trade] = []
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            trade_id = str(item.get("trade_id") or "")
+            if not trade_id or trade_id in self._emitted_trade_ids:
+                continue
+            known = self._orders_by_id.get(str(item.get("order_id", "")))
+            if known is None or not item.get("fill_timestamp"):
+                continue
+            row = dict(item)
+            if not row.get("transaction_type"):
+                row["transaction_type"] = ZERODHA_SIDE_MAP.get(known.side, "BUY")
+            try:
+                trade = parse_trade(row, self._id_resolver)
+            except (KeyError, ValueError, TypeError) as e:
+                logger.debug("Skipping unparseable fill: %s", e)
+                continue
+            self._emitted_trade_ids.add(trade_id)
+            fills.append(trade)
+        return fills
+
     async def modify_order(
         self,
         order_id: str,
@@ -185,11 +296,15 @@ class ZerodhaExecutionMixin:
 
         payload: dict[str, Any] = {}
         if quantity is not None:
-            payload["quantity"] = int(quantity)
-        if price is not None:
-            payload["price"] = float(price)
-        if trigger_price is not None:
-            payload["trigger_price"] = float(trigger_price)
+            try:
+                payload["quantity"] = whole_quantity(quantity)
+            except ValueError as e:
+                raise AdapterError(str(e)) from e
+        for key, value in (("price", price), ("trigger_price", trigger_price)):
+            if value is not None:
+                if not (math.isfinite(value) and value > 0):
+                    raise AdapterError(f"{key} must be positive, got {value}")
+                payload[key] = float(value)
 
         try:
             await self._http.put(
@@ -197,7 +312,7 @@ class ZerodhaExecutionMixin:
                 pool="orders",
                 data=payload,
             )
-        except AdapterError as e:
+        except ZerodhaRejectedError as e:
             raise AdapterError(f"unknown order id {order_id}") from e
 
     async def cancel_order(self, order_id: str) -> None:
@@ -227,7 +342,7 @@ class ZerodhaExecutionMixin:
                     filled_quantity=cached.filled_quantity,
                     average_price=cached.average_price,
                 )
-        except AdapterError as e:
+        except ZerodhaRejectedError as e:
             raise AdapterError(f"unknown order id {order_id}") from e
 
     async def cancel_all(
@@ -259,7 +374,7 @@ class ZerodhaExecutionMixin:
         self.require_connected()  # type: ignore[attr-defined]
         try:
             resp = await self._http.get(f"/orders/{order_id}", pool="orders")
-        except AdapterError as e:
+        except ZerodhaRejectedError as e:
             raise AdapterError(f"unknown order id {order_id}") from e
 
         if not resp:
