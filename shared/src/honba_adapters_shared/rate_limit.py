@@ -56,10 +56,11 @@ class TokenBucket:
         sleep: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self._limit = limit
+        self._burst: int = limit.burst if limit.burst is not None else limit.requests
         self._is_custom_clock = clock is not None and clock is not time.monotonic
         self._clock = clock or time.monotonic
         self._sleep = sleep or asyncio.sleep
-        self._tokens: float = float(limit.burst)
+        self._tokens: float = float(self._burst)
         self._last_refill = self._clock()
 
     @property
@@ -76,7 +77,7 @@ class TokenBucket:
         elapsed = now - self._last_refill
         if elapsed > 0:
             new_tokens = elapsed * self._limit.rate_per_second
-            self._tokens = min(float(self._limit.burst), self._tokens + new_tokens)
+            self._tokens = min(float(self._burst), self._tokens + new_tokens)
             self._last_refill = now
 
     def try_acquire(self, tokens: int = 1, *, now: float | None = None) -> bool:
@@ -95,7 +96,7 @@ class TokenBucket:
             elapsed = now - self._last_refill
             if elapsed > 0:
                 new_tokens = elapsed * self._limit.rate_per_second
-                self._tokens = min(float(self._limit.burst), self._tokens + new_tokens)
+                self._tokens = min(float(self._burst), self._tokens + new_tokens)
                 self._last_refill = now
         else:
             self._refill()
@@ -113,9 +114,9 @@ class TokenBucket:
         """
         if tokens <= 0:
             raise ValueError("tokens must be positive")
-        if tokens > self._limit.burst:
+        if tokens > self._burst:
             raise ValueError(
-                f"tokens ({tokens}) cannot exceed burst capacity ({self._limit.burst})"
+                f"tokens ({tokens}) cannot exceed burst capacity ({self._burst})"
             )
 
         while True:

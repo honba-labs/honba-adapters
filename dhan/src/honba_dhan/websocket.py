@@ -256,4 +256,6 @@ class DhanFeedClient:
         if event is not None:
             for cb in self._callbacks:
                 with contextlib.suppress(Exception):
-                    cb(event)
+                    cb_fn: Any = cb
+                    cb_fn(event)
+

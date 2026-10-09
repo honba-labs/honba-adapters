@@ -66,6 +66,6 @@ class TestDhanFeedPackets:
         assert depth.instrument_id == InstrumentId("RELIANCE", "NSE")
         assert len(depth.bids) == 20
         assert len(depth.asks) == 20
-        assert depth.best_bid.price == 2500.00
-        assert depth.best_ask.price == 2501.00
+        assert depth.best_bid is not None and depth.best_bid.price == 2500.00
+        assert depth.best_ask is not None and depth.best_ask.price == 2501.00
         assert depth.mid_price == 2500.50

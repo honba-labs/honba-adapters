@@ -634,6 +634,6 @@ class ZerodhaFeedClient:
             for event in events:
                 for cb in list(self._callbacks):
                     with contextlib.suppress(Exception):
-                        res = cb(event)
+                        res: Any = cb(event)
                         if hasattr(res, "__await__"):
                             await res

@@ -144,7 +144,7 @@ def parse_position(
         side = PositionSide.SHORT
         avg_price = float(item.get("sell_price", item.get("average_price", 0.0)))
     else:
-        side = PositionSide.FLAT
+        side = PositionSide.LONG
         avg_price = float(item.get("average_price", 0.0))
 
     realized = float(item.get("realised", item.get("realized_pnl", 0.0)))

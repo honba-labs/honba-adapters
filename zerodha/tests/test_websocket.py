@@ -5,6 +5,7 @@ from __future__ import annotations
 import struct
 
 from honba.domain.instrument import InstrumentId
+from honba.domain.tick import QuoteTick
 
 from honba_zerodha.websocket import (
     unpack_full_depth_packet,
@@ -110,5 +111,5 @@ def test_unpack_composite_frame() -> None:
 
     events = unpack_kite_packet(bytes(frame), mock_id_resolver)
     assert len(events) == 2
-    assert events[0].bid_price == 2450.0
-    assert events[1].bid_price == 2451.0
+    assert isinstance(events[0], QuoteTick) and events[0].bid_price == 2450.0
+    assert isinstance(events[1], QuoteTick) and events[1].bid_price == 2451.0

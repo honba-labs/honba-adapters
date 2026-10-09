@@ -198,8 +198,9 @@ class TestTokenManager:
         refreshed = await mgr.get_token("acc1", refresh_fn=refresher)
         assert refreshed.access_token == "new"
         # Verify saved in store
-        assert store.load("acc1") is not None
-        assert store.load("acc1").access_token == "new"
+        saved = store.load("acc1")
+        assert saved is not None
+        assert saved.access_token == "new"
 
     @pytest.mark.asyncio
     async def test_missing_token_without_refresher_raises(self) -> None:

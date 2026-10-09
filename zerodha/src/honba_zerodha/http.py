@@ -86,17 +86,17 @@ class ZerodhaHttpClient:
         self._limiter = RateLimiter(
             {
                 "orders": RateLimit(
-                    requests=config.order_rate_limit,
+                    requests=int(config.order_rate_limit),
                     per_seconds=1.0,
                     burst=20,
                 ),
                 "data": RateLimit(
-                    requests=config.data_rate_limit,
+                    requests=int(config.data_rate_limit),
                     per_seconds=1.0,
                     burst=20,
                 ),
                 "historical": RateLimit(
-                    requests=config.history_rate_limit,
+                    requests=int(config.history_rate_limit),
                     per_seconds=1.0,
                     burst=5,
                 ),
@@ -117,8 +117,7 @@ class ZerodhaHttpClient:
         """Exchange a ``request_token`` for an access token, store it and return the user id.
 
         The checksum is ``sha256(api_key + request_token + api_secret)``; the secret itself is
-        never sent and never appears in errors.
-        """
+        never sent and never appears in errors."""
         checksum = hashlib.sha256(
             (self._api_key + request_token + api_secret).encode("utf-8")
         ).hexdigest()

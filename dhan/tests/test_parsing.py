@@ -173,8 +173,8 @@ class TestDhanParsing:
         assert depth.bids[1] == DepthLevel(2453.0, 200.0)
         assert depth.asks[0] == DepthLevel(2456.0, 150.0)
         assert depth.asks[1] == DepthLevel(2457.0, 250.0)
-        assert depth.best_bid.price == 2454.0
-        assert depth.best_ask.price == 2456.0
+        assert depth.best_bid is not None and depth.best_bid.price == 2454.0
+        assert depth.best_ask is not None and depth.best_ask.price == 2456.0
         assert depth.mid_price == 2455.0
 
     def test_parse_historical_bars(self) -> None:
