@@ -324,7 +324,13 @@ class DhanExecutionMixin:
     async def holdings(self) -> list[Holding]:
         """Fetch demat holdings."""
         self.require_connected()  # type: ignore[attr-defined]
-        resp = await self._http.get("/holdings", pool="orders")
+        try:
+            resp = await self._http.get("/holdings", pool="orders")
+        except AdapterError as e:
+            # Dhan reports an empty demat account as HTTP 500 "No holdings available".
+            if "no holdings available" in str(e).lower():
+                return []
+            raise
         if not isinstance(resp, list):
             resp = resp.get("data", []) if isinstance(resp, dict) else []
 
