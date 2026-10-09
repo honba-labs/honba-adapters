@@ -23,3 +23,4 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = ["live: hits the real Dhan API (read-only); needs DHAN_CLIENT_ID/DHAN_ACCESS_TOKEN"]
