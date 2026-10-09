@@ -6,6 +6,8 @@ Implements the Adapter facade, MarketDataAdapter, and ExecutionAdapter role prot
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 from honba.adapters.base import Adapter
 from honba.adapters.capabilities import AdapterCapabilities, Capability
@@ -25,9 +27,10 @@ from honba_dhan.data import DhanMarketDataMixin
 from honba_dhan.execution import DhanExecutionMixin
 from honba_dhan.http import DhanHttpClient
 from honba_dhan.instruments import DhanInstrumentMaster
+from honba_dhan.mock import make_dhan_mock_transport
 from honba_dhan.websocket import DhanFeedClient
 
-__all__ = ["DhanAdapter", "DhanConfig"]
+__all__ = ["DhanAdapter", "DhanConfig", "make_dhan_mock_transport"]
 
 _DHAN_CAPABILITIES = AdapterCapabilities(
     name="dhan",
@@ -71,11 +74,35 @@ class DhanAdapter(DhanExecutionMixin, DhanMarketDataMixin, Adapter):
 
     def __init__(
         self,
-        config: DhanConfig,
+        config: DhanConfig | None = None,
         *,
         http_transport: httpx.AsyncBaseTransport | None = None,
         instruments: DhanInstrumentMaster | None = None,
+        **kwargs: Any,
     ) -> None:
+        if config is None:
+            kwargs.pop("name", None)
+            mode = kwargs.pop("mode", None)
+            if isinstance(mode, str):
+                mode = RunMode.PAPER if mode.lower() == "paper" else RunMode.LIVE
+            client_id = kwargs.pop("client_id", None)
+            access_token = kwargs.pop("access_token", None)
+            if mode == RunMode.PAPER or (client_id is None and access_token is None):
+                config = DhanConfig.paper(
+                    client_id=client_id or "PAPER_DHAN_USER",
+                    access_token=access_token or "paper_token_valid_for_testing",
+                    **kwargs,
+                )
+            else:
+                config = DhanConfig.live(
+                    client_id=client_id,
+                    access_token=access_token,
+                    **kwargs,
+                )
+
+        if http_transport is None and config.mode == RunMode.PAPER:
+            http_transport = make_dhan_mock_transport()
+
         self._config = config
         self._http_transport = http_transport
         self._instruments = instruments or DhanInstrumentMaster(

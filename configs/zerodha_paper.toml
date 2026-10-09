@@ -1,0 +1,9 @@
+# Zerodha Kite Connect Paper / Sandbox configuration
+[adapter]
+name = "zerodha"
+mode = "paper"
+api_key = "mock_api_key"
+access_token = "mock_access_token"
+order_rate_limit = 10.0
+data_rate_limit = 10.0
+history_rate_limit = 3.0

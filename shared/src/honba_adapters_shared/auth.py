@@ -215,9 +215,7 @@ class TokenRecord:
         if not self.access_token:
             raise ValueError("access_token cannot be empty")
         if self.expires_at is not None and self.expires_at.tzinfo is None:
-            object.__setattr__(
-                self, "expires_at", self.expires_at.replace(tzinfo=timezone.utc)
-            )
+            object.__setattr__(self, "expires_at", self.expires_at.replace(tzinfo=timezone.utc))
 
     def is_expired(self, now: datetime | None = None) -> bool:
         """Check if the token has reached or passed its expiration time."""

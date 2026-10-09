@@ -5,6 +5,8 @@ Provides full lifecycle integration, order execution, market data, and KiteTicke
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 from honba.adapters.base import Adapter
 from honba.adapters.capabilities import AdapterCapabilities, Capability
@@ -24,9 +26,10 @@ from honba_zerodha.data import ZerodhaMarketDataMixin
 from honba_zerodha.execution import ZerodhaExecutionMixin
 from honba_zerodha.http import ZerodhaHttpClient
 from honba_zerodha.instruments import ZerodhaInstrumentMaster
+from honba_zerodha.mock import make_zerodha_mock_transport
 from honba_zerodha.websocket import ZerodhaFeedClient
 
-__all__ = ["ZerodhaAdapter", "ZerodhaConfig"]
+__all__ = ["ZerodhaAdapter", "ZerodhaConfig", "make_zerodha_mock_transport"]
 
 _ZERODHA_CAPABILITIES = AdapterCapabilities(
     name="zerodha",
@@ -70,11 +73,35 @@ class ZerodhaAdapter(ZerodhaExecutionMixin, ZerodhaMarketDataMixin, Adapter):
 
     def __init__(
         self,
-        config: ZerodhaConfig,
+        config: ZerodhaConfig | None = None,
         *,
         http_transport: httpx.AsyncBaseTransport | None = None,
         instruments: ZerodhaInstrumentMaster | None = None,
+        **kwargs: Any,
     ) -> None:
+        if config is None:
+            kwargs.pop("name", None)
+            mode = kwargs.pop("mode", None)
+            if isinstance(mode, str):
+                mode = RunMode.PAPER if mode.lower() == "paper" else RunMode.LIVE
+            api_key = kwargs.pop("api_key", None)
+            access_token = kwargs.pop("access_token", None)
+            if mode == RunMode.PAPER or (api_key is None and access_token is None):
+                config = ZerodhaConfig.paper(
+                    api_key=api_key or "mock_api_key",
+                    access_token=access_token or "mock_access_token",
+                    **kwargs,
+                )
+            else:
+                config = ZerodhaConfig.live(
+                    api_key=api_key,
+                    access_token=access_token,
+                    **kwargs,
+                )
+
+        if http_transport is None and config.mode == RunMode.PAPER:
+            http_transport = make_zerodha_mock_transport()
+
         self._config = config
         self._http_transport = http_transport
         self._instruments = instruments or ZerodhaInstrumentMaster(
