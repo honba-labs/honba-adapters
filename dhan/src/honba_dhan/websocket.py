@@ -258,4 +258,3 @@ class DhanFeedClient:
                 with contextlib.suppress(Exception):
                     cb_fn: Any = cb
                     cb_fn(event)
-

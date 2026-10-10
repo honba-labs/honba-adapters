@@ -115,9 +115,7 @@ class TokenBucket:
         if tokens <= 0:
             raise ValueError("tokens must be positive")
         if tokens > self._burst:
-            raise ValueError(
-                f"tokens ({tokens}) cannot exceed burst capacity ({self._burst})"
-            )
+            raise ValueError(f"tokens ({tokens}) cannot exceed burst capacity ({self._burst})")
 
         while True:
             if self.try_acquire(tokens):

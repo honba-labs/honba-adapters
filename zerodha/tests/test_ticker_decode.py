@@ -275,7 +275,11 @@ class TestLegacyUnpackKeepsWorking:
     def test_unpack_kite_packet_handles_index_and_wider_divisor_packets(self) -> None:
         resolver = lambda token: InstrumentId(str(token), "NSE")
         cds = unpack_kite_packet(frame([ltp_packet(256 * 5 + 3, 835_000_000)]), resolver)
-        assert len(cds) == 1 and isinstance(cds[0], QuoteTick) and cds[0].bid_price == pytest.approx(83.5)
+        assert (
+            len(cds) == 1
+            and isinstance(cds[0], QuoteTick)
+            and cds[0].bid_price == pytest.approx(83.5)
+        )
         index = u32s(256 * 9 + 9, 2_200_000, 2_210_000, 2_190_000, 2_195_000, 2_180_000, 5)
         ev = unpack_kite_packet(frame([index]), resolver)
         assert len(ev) == 1 and isinstance(ev[0], QuoteTick) and ev[0].bid_price == 22_000.0
