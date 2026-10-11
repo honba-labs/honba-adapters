@@ -84,6 +84,39 @@ class ZerodhaInstrumentMaster:
         ]
         for scrip in core_scrips:
             self.register(scrip)
+        self._load_from_lakehouse()
+
+    def _load_from_lakehouse(self) -> None:
+        """Dynamically load company universe from honba-data DuckDB store if present."""
+        try:
+            import duckdb
+            from honba.screener.store import find_data_root
+
+            db_path = find_data_root() / "fundamentals.duckdb"
+            if db_path.is_file():
+                with duckdb.connect(str(db_path), read_only=True) as con:
+                    rows = con.execute(
+                        "SELECT symbol, company_name FROM companies ORDER BY symbol"
+                    ).fetchall()
+                    for sym, name in rows:
+                        iid = InstrumentId(sym, "NSE")
+                        if iid not in self._by_id:
+                            token = abs(hash((sym, "NSE"))) % 9_000_000 + 1_000_000
+                            self.register(
+                                ZerodhaInstrumentRecord(
+                                    instrument_token=token,
+                                    exchange_token=str(token % 100_000),
+                                    tradingsymbol=sym,
+                                    name=name or sym,
+                                    exchange="NSE",
+                                    segment="NSE",
+                                    lot_size=1.0,
+                                    tick_size=0.05,
+                                    instrument_type="EQ",
+                                )
+                            )
+        except (OSError, RuntimeError, ValueError, KeyError):
+            return
 
     def register(self, record: ZerodhaInstrumentRecord) -> None:
         """Register a single instrument mapping.

@@ -78,6 +78,32 @@ class DhanInstrumentMaster:
                 tick_size=row[5],
                 kind=InstrumentKind.EQUITY,
             )
+        self._load_from_lakehouse()
+
+    def _load_from_lakehouse(self) -> None:
+        """Dynamically load company universe from honba-data DuckDB store if present."""
+        try:
+            import duckdb
+            from honba.screener.store import find_data_root
+
+            db_path = find_data_root() / "fundamentals.duckdb"
+            if db_path.is_file():
+                with duckdb.connect(str(db_path), read_only=True) as con:
+                    rows = con.execute("SELECT symbol FROM companies ORDER BY symbol").fetchall()
+                    for (sym,) in rows:
+                        iid = InstrumentId(sym, "NSE")
+                        if iid not in self._by_id:
+                            sec_id = str(abs(hash((sym, "NSE"))) % 1_000_000 + 100_000)
+                            self.add_instrument(
+                                security_id=sec_id,
+                                exchange_segment="NSE_EQ",
+                                symbol=sym,
+                                lot_size=1.0,
+                                tick_size=0.05,
+                                kind=InstrumentKind.EQUITY,
+                            )
+        except (OSError, RuntimeError, ValueError, KeyError):
+            return
 
     def add_instrument(
         self,
