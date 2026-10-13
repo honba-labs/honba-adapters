@@ -93,12 +93,15 @@ class ZerodhaAdapter(ZerodhaExecutionMixin, ZerodhaMarketDataMixin, Adapter):
                 mode = RunMode.PAPER if mode.lower() == "paper" else RunMode.LIVE
             api_key = kwargs.pop("api_key", None)
             access_token = kwargs.pop("access_token", None)
-            if mode == RunMode.PAPER or (api_key is None and access_token is None):
+            if mode == RunMode.PAPER:
                 config = ZerodhaConfig.paper(
                     api_key=api_key or "mock_api_key",
                     access_token=access_token or "mock_access_token",
                     **kwargs,
                 )
+            elif api_key is None and access_token is None:
+                # No explicit credentials: use the environment, or fail loudly.
+                config = ZerodhaConfig.from_env(**kwargs)
             else:
                 config = ZerodhaConfig.live(
                     api_key=str(api_key or ""),

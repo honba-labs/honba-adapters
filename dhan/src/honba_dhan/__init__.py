@@ -87,12 +87,15 @@ class DhanAdapter(DhanExecutionMixin, DhanMarketDataMixin, Adapter):
                 mode = RunMode.PAPER if mode.lower() == "paper" else RunMode.LIVE
             client_id = kwargs.pop("client_id", None)
             access_token = kwargs.pop("access_token", None)
-            if mode == RunMode.PAPER or (client_id is None and access_token is None):
+            if mode == RunMode.PAPER:
                 config = DhanConfig.paper(
                     client_id=client_id or "PAPER_DHAN_USER",
                     access_token=access_token or "paper_token_valid_for_testing",
                     **kwargs,
                 )
+            elif client_id is None and access_token is None:
+                # No explicit credentials: use the environment, or fail loudly.
+                config = DhanConfig.from_env(**kwargs)
             else:
                 config = DhanConfig.live(
                     client_id=str(client_id or ""),

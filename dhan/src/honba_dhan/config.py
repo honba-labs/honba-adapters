@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from honba.adapters.models import RunMode
+from honba_adapters_shared.env import cache_dir, env_mode, missing_credentials_error
 
 from honba_dhan.constants import DEFAULT_DATA_URL, DEFAULT_FEED_URL, DEFAULT_REST_URL
 
@@ -27,11 +28,7 @@ class DhanConfig:
     orders_per_second: int = 10
     orders_burst: int = 25
     data_per_second: int = 5
-    cache_dir: Path = field(
-        default_factory=lambda: Path(
-            os.environ.get("HONBA_CACHE_DIR", "~/.cache/honba/dhan")
-        ).expanduser()
-    )
+    cache_dir: Path = field(default_factory=lambda: cache_dir("dhan"))
 
     def __post_init__(self) -> None:
         if not self.client_id:
@@ -83,9 +80,22 @@ class DhanConfig:
 
     @classmethod
     def from_env(cls, prefix: str = "DHAN_", **kwargs) -> DhanConfig:
-        """Load configuration from environment variables."""
+        """Load configuration from ``<prefix>CLIENT_ID``, ``<prefix>ACCESS_TOKEN``, ``<prefix>MODE``.
+
+        ``MODE`` is ``live`` (default) or ``paper``; paper mode may omit credentials.
+        """
         client_id = os.environ.get(f"{prefix}CLIENT_ID", "")
         access_token = os.environ.get(f"{prefix}ACCESS_TOKEN", "")
-        mode_str = os.environ.get(f"{prefix}MODE", "LIVE").upper()
-        mode = RunMode.PAPER if mode_str == "PAPER" else RunMode.LIVE
+        mode = env_mode(prefix)
+        if mode is RunMode.PAPER:
+            creds = {
+                k: v for k, v in (("client_id", client_id), ("access_token", access_token)) if v
+            }
+            return cls.paper(**creds, **kwargs)
+        if not client_id or not access_token:
+            raise missing_credentials_error(
+                "Dhan",
+                [f"{prefix}CLIENT_ID", f"{prefix}ACCESS_TOKEN"],
+                f"{prefix}MODE=paper or DhanConfig.paper()",
+            )
         return cls(client_id=client_id, access_token=access_token, mode=mode, **kwargs)
