@@ -5,26 +5,64 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # The honba core ref these adapters are tested against. The adapters depend on
+  # bare "honba" (unpinned, not on PyPI), so CI builds the core from this ref.
+  # Bump deliberately when the adapter contract in honba changes.
+  HONBA_REF: main
+
 jobs:
-  python:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: honba-adapters
+      # `honba` is not published to PyPI: build the core (Rust extension via
+      # maturin) from its GitHub repo.
+      - uses: actions/checkout@v4
+        with:
+          repository: honba-labs/honba
+          ref: ${{ env.HONBA_REF }}
+          path: honba
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: honba
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
-      - name: install deps
+      - name: create virtualenv (maturin develop requires one)
+        run: |
+          python -m venv "$GITHUB_WORKSPACE/.venv"
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+      - name: build and install honba
+        working-directory: honba/python
         run: |
           python -m pip install --upgrade pip
-          [ -f requirements.txt ] && pip install -r requirements.txt || true
-          [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt || true
-          pip install pytest
-          pip install -e "shared[dev]"
+          # honba/python/requirements.txt omits some runtime imports of the core
+          # (yfinance, duckdb, cryptography), so list them explicitly.
+          pip install -r requirements.txt maturin yfinance duckdb cryptography
+          maturin develop
+      - name: install adapters
+        working-directory: honba-adapters
+        run: |
+          pip install pytest pytest-asyncio ruff
+          pip install -e shared -e dhan -e zerodha
+      - name: lint
+        working-directory: honba-adapters
+        run: |
+          ruff check .
+          ruff format --check .
       - name: syntax check all sources
+        working-directory: honba-adapters
         run: |
           find . -name '*.py' -not -path './.venv/*' -print0 \
             | xargs -0 -r -n1 python -m py_compile
+      # Runs shared, root contract suite (recorded fixtures), dhan and zerodha
+      # (see pytest.ini). Live broker tests are skipped: they need credentials
+      # that CI never sets (HONBA_LIVE_SMOKE_TEST and broker tokens are unset).
       - name: pytest
-        run: |
-          if [ -d shared/tests ]; then pytest -q shared/tests; else echo "no tests dir"; fi
+        working-directory: honba-adapters
+        run: pytest -q -rs

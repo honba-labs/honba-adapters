@@ -195,6 +195,20 @@ mybroker = "honba_mybroker:MyBrokerAdapter"
 The step-by-step guide is
 [Adding Broker Adapters](../honba-docs/book/src/contributing/adding_adapters.md).
 
+## Testing and the honba dependency
+
+Every package depends on bare `honba`, which is not on PyPI and needs its Rust
+extension built with maturin. CI (`.github/workflows/ci.yml`) therefore checks out
+`honba-labs/honba` at the ref in the workflow's `HONBA_REF` env var (currently `main`,
+so the adapters are tested against current core), runs `maturin develop`, installs
+`shared`, `dhan` and `zerodha` editable, then runs ruff and the full pytest suite from
+the repo root (shared, the root contract suite, dhan, zerodha). Live broker tests
+skip unless credentials are set. If the adapter contract in `honba` changes
+incompatibly, pin `HONBA_REF` to a tag or SHA until the adapters catch up.
+
+Locally, with `honba` installed in a venv: `pip install pytest pytest-asyncio duckdb
+yfinance cryptography && pip install -e shared -e dhan -e zerodha && pytest -q`.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
