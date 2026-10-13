@@ -27,10 +27,10 @@ from honba_dhan.data import DhanMarketDataMixin
 from honba_dhan.execution import DhanExecutionMixin
 from honba_dhan.http import DhanHttpClient
 from honba_dhan.instruments import DhanInstrumentMaster
-from honba_dhan.mock import make_dhan_mock_transport
+from honba_dhan.mock import make_dhan_mock_handler, make_dhan_mock_transport
 from honba_dhan.websocket import DhanFeedClient
 
-__all__ = ["DhanAdapter", "DhanConfig", "make_dhan_mock_transport"]
+__all__ = ["DhanAdapter", "DhanConfig", "make_dhan_mock_handler", "make_dhan_mock_transport"]
 
 _DHAN_CAPABILITIES = AdapterCapabilities(
     name="dhan",

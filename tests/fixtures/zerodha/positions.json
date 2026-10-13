@@ -1,0 +1,15 @@
+{
+  "status": "success",
+  "data": {
+    "net": [
+      {
+        "tradingsymbol": "RELIANCE",
+        "exchange": "NSE",
+        "quantity": 1.0,
+        "buy_price": 2450.0,
+        "realised": 0.0,
+        "unrealised": 0.0
+      }
+    ]
+  }
+}

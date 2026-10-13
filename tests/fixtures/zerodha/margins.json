@@ -1,0 +1,17 @@
+{
+  "status": "success",
+  "data": {
+    "equity": {
+      "net": 1000000.0,
+      "available": {
+        "cash": 1000000.0,
+        "opening_balance": 1000000.0,
+        "collateral": 0.0
+      },
+      "utilised": {
+        "debits": 50000.0,
+        "margin_used": 50000.0
+      }
+    }
+  }
+}

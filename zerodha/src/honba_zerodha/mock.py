@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs
 
 import httpx
 
-__all__ = ["make_zerodha_mock_transport"]
+__all__ = ["make_zerodha_mock_handler", "make_zerodha_mock_transport"]
 
 _INSTRUMENTS_CSV = (
     "instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,"
@@ -19,8 +20,12 @@ _INSTRUMENTS_CSV = (
 )
 
 
-def make_zerodha_mock_transport() -> httpx.MockTransport:
-    """Creates an in-memory HTTP mock transport responding as Kite Connect v3 REST API."""
+def make_zerodha_mock_handler() -> Callable[[httpx.Request], httpx.Response]:
+    """The Kite Connect v3 REST handler behind the mock transport.
+
+    Exposed so a test can compose it under a recorded-fixture transport as the fallback for
+    stateful endpoints (the order lifecycle) that a single recorded read cannot replay.
+    """
     orders_store: dict[str, dict[str, Any]] = {}
     order_seq = [1000]
 
@@ -282,4 +287,9 @@ def make_zerodha_mock_transport() -> httpx.MockTransport:
             json={"status": "error", "message": f"Not found: {path}"},
         )
 
-    return httpx.MockTransport(handler)
+    return handler
+
+
+def make_zerodha_mock_transport() -> httpx.MockTransport:
+    """Creates an in-memory HTTP mock transport responding as Kite Connect v3 REST API."""
+    return httpx.MockTransport(make_zerodha_mock_handler())

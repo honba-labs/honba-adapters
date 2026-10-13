@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "data": {
+    "NSE:RELIANCE": {
+      "instrument_token": 738561,
+      "last_price": 2450.0,
+      "depth": {
+        "buy": [{"price": 2449.0, "quantity": 100}],
+        "sell": [{"price": 2451.0, "quantity": 100}]
+      }
+    }
+  }
+}

@@ -3,7 +3,7 @@
 ``honba-adapters-shared`` is what every package here has in common:
 - Contract suite an adapter must pass (:func:`assert_adapter_contract`)
 - Boundary check that keeps broker wire types inside their adapter (:func:`find_boundary_violations`)
-- Test fixture loader (:func:`load_fixture`, :func:`fixtures_dir`)
+- Test fixture loader and recorded-response transport (:func:`load_fixture`, :func:`fixtures_dir`, :func:`recorded_transport`)
 - Token bucket rate limiter (:class:`RateLimiter`, :class:`TokenBucket`, :func:`rate_limited`)
 - RFC 6238 TOTP generator and token management (:class:`TOTP`, :class:`TokenManager`, :class:`TokenRecord`)
 - Reconnecting WebSocket transport and sequence tracker (:class:`ReconnectingWebSocketClient`, :class:`SequenceTracker`)
@@ -52,7 +52,7 @@ from honba_adapters_shared.errors import (
     TokenExpiredError,
     WebSocketError,
 )
-from honba_adapters_shared.fixtures import fixtures_dir, load_fixture
+from honba_adapters_shared.fixtures import fixtures_dir, load_fixture, recorded_transport
 from honba_adapters_shared.rate_limit import (
     RateLimit,
     RateLimiter,
@@ -110,6 +110,7 @@ __all__ = [
     "generate_totp",
     "load_fixture",
     "rate_limited",
+    "recorded_transport",
     "register_adapter",
     "resolve_adapter",
     "verify_adapter_contract",

@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import inspect
 import json
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-__all__ = ["fixtures_dir", "load_fixture"]
+import httpx
+
+__all__ = ["fixtures_dir", "load_fixture", "recorded_transport"]
 
 _FIXTURE_DIRNAME = "fixtures"
 _TESTS_DIRNAME = "tests"
@@ -93,3 +96,60 @@ def load_fixture(relative_path: str | Path, *, start: Path | None = None) -> Any
         raise json.JSONDecodeError(
             f"{error.msg} (not valid JSON) in {path}", error.doc, error.pos
         ) from error
+
+
+def _content_type(path: Path) -> str:
+    if path.suffix == ".csv":
+        return "text/csv"
+    if path.suffix in {".txt", ".text"}:
+        return "text/plain"
+    return "application/json"
+
+
+def _load_recorded(path: Path) -> tuple[Any, str]:
+    """The recorded body and its content type. ``.json`` is parsed; anything else is text."""
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".json":
+        return json.loads(text), "application/json"
+    return text, _content_type(path)
+
+
+def recorded_transport(
+    routes: Mapping[str, str],
+    *,
+    fixtures: Path,
+    fallback: Callable[[httpx.Request], httpx.Response] | None = None,
+) -> httpx.MockTransport:
+    """Replay recorded broker responses over an in-process HTTP transport.
+
+    ``routes`` maps a path fragment to a fixture file *relative to* ``fixtures``
+    (``{"/marketfeed/quote": "dhan/quote.json"}``). A request is served by the longest
+    fragment contained in its path, so ``/instruments/historical/738561/day`` matches
+    ``/instruments/historical`` and not the shorter ``/instruments``. A ``.json`` fixture
+    is a 200 JSON body; ``.csv`` and other files are 200 text with a matching content type.
+
+    A request that matches no fragment goes to ``fallback`` (an adapter's own handler, for
+    stateful endpoints such as the order lifecycle) or, without one, is a 404 naming the
+    miss. Deterministic: fixtures are read from disk, never a network or a clock.
+    """
+    directory = Path(fixtures)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        match: str | None = None
+        for fragment in routes:
+            if fragment in path and (match is None or len(fragment) > len(match)):
+                match = fragment
+        if match is None:
+            if fallback is not None:
+                return fallback(request)
+            return httpx.Response(
+                404,
+                json={"status": "error", "message": f"no recording for {request.method} {path}"},
+            )
+        body, content_type = _load_recorded(directory / routes[match])
+        if content_type == "application/json":
+            return httpx.Response(200, json=body)
+        return httpx.Response(200, text=body, headers={"content-type": content_type})
+
+    return httpx.MockTransport(handler)

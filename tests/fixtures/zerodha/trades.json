@@ -1,0 +1,16 @@
+{
+  "status": "success",
+  "data": [
+    {
+      "trade_id": "T-1001",
+      "order_id": "KITE-ORD-1001",
+      "tradingsymbol": "RELIANCE",
+      "exchange": "NSE",
+      "transaction_type": "BUY",
+      "quantity": 1.0,
+      "average_price": 2450.0,
+      "fill_timestamp": "2024-01-02 09:15:30",
+      "brokerage": 20.0
+    }
+  ]
+}

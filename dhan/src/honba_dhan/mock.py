@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
 
-__all__ = ["make_dhan_mock_transport"]
+__all__ = ["make_dhan_mock_handler", "make_dhan_mock_transport"]
 
 
-def make_dhan_mock_transport() -> httpx.MockTransport:
-    """Creates an in-memory HTTP mock transport responding as Dhan v2 REST API."""
+def make_dhan_mock_handler() -> Callable[[httpx.Request], httpx.Response]:
+    """The Dhan v2 REST handler behind the mock transport.
+
+    Exposed so a test can compose it under a recorded-fixture transport as the fallback for
+    stateful endpoints (the order lifecycle) that a single recorded read cannot replay.
+    """
     orders_store: dict[str, dict[str, Any]] = {}
     order_seq = [1000]
 
@@ -163,4 +168,9 @@ def make_dhan_mock_transport() -> httpx.MockTransport:
 
         return httpx.Response(404, json={"status": "error", "message": f"Not found: {path}"})
 
-    return httpx.MockTransport(handler)
+    return handler
+
+
+def make_dhan_mock_transport() -> httpx.MockTransport:
+    """Creates an in-memory HTTP mock transport responding as Dhan v2 REST API."""
+    return httpx.MockTransport(make_dhan_mock_handler())

@@ -27,10 +27,15 @@ from honba_zerodha.data import ZerodhaMarketDataMixin
 from honba_zerodha.execution import ZerodhaExecutionMixin
 from honba_zerodha.http import ZerodhaHttpClient
 from honba_zerodha.instruments import ZerodhaInstrumentMaster
-from honba_zerodha.mock import make_zerodha_mock_transport
+from honba_zerodha.mock import make_zerodha_mock_handler, make_zerodha_mock_transport
 from honba_zerodha.websocket import ZerodhaFeedClient
 
-__all__ = ["ZerodhaAdapter", "ZerodhaConfig", "make_zerodha_mock_transport"]
+__all__ = [
+    "ZerodhaAdapter",
+    "ZerodhaConfig",
+    "make_zerodha_mock_handler",
+    "make_zerodha_mock_transport",
+]
 
 _ZERODHA_CAPABILITIES = AdapterCapabilities(
     name="zerodha",

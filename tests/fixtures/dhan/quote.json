@@ -1,0 +1,7 @@
+{
+  "lastPrice": 2450.0,
+  "depth": {
+    "buy": [{"price": 2449.0, "quantity": 100}],
+    "sell": [{"price": 2451.0, "quantity": 100}]
+  }
+}

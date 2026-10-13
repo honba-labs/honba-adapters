@@ -1,0 +1,11 @@
+[
+  {
+    "orderId": "DHAN-ORD-1001",
+    "securityId": "1333",
+    "exchangeSegment": "NSE_EQ",
+    "transactionType": "BUY",
+    "tradedQuantity": 1.0,
+    "tradedPrice": 2450.0,
+    "brokerageCharge": 15.0
+  }
+]

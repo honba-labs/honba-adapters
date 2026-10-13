@@ -1,0 +1,8 @@
+{
+  "availabelBalance": 1234567.0,
+  "sodLimit": 1234567.0,
+  "utilizedAmount": 50000.0,
+  "collateralAmount": 0.0,
+  "receiveableAmount": 0.0,
+  "blockedPayoutAmount": 0.0
+}

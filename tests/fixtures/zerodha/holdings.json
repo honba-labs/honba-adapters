@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "data": [
+    {
+      "tradingsymbol": "RELIANCE",
+      "exchange": "NSE",
+      "quantity": 10.0,
+      "average_price": 2450.0,
+      "last_price": 2455.0,
+      "pnl": 50.0
+    }
+  ]
+}
