@@ -76,7 +76,8 @@ class DhanMarketDataMixin:
         try:
             resp = await self._http.post("/marketfeed/quote", pool="data", json_body=payload)
         except AdapterError as e:
-            # Fallback or wrap error
+            if e.fatal:
+                raise
             raise AdapterError(f"Failed to fetch quote for {instrument_id}: {e}") from e
 
         if not resp or (isinstance(resp, dict) and resp.get("status") == "error"):
@@ -100,6 +101,8 @@ class DhanMarketDataMixin:
         try:
             resp = await self._http.post("/marketfeed/quote", pool="data", json_body=payload)
         except AdapterError as e:
+            if e.fatal:
+                raise
             raise AdapterError(f"Failed to fetch depth for {instrument_id}: {e}") from e
 
         if not resp or (isinstance(resp, dict) and resp.get("status") == "error"):
@@ -158,6 +161,8 @@ class DhanMarketDataMixin:
         try:
             resp = await self._http.post(endpoint, pool="data", json_body=payload)
         except AdapterError as e:
+            if e.fatal:
+                raise  # auth / data-plan errors keep their clear message and fatal type
             raise AdapterError(f"historical bars failed for {instrument_id}: {e}") from e
 
         if not resp or (isinstance(resp, dict) and resp.get("status") == "error"):

@@ -21,7 +21,50 @@ from honba_adapters_shared.rate_limit import RateLimit, RateLimiter
 
 from honba_dhan.config import DhanConfig
 
-__all__ = ["DhanHttpClient"]
+__all__ = ["DH902_MESSAGE", "DhanHttpClient", "map_error_code"]
+
+DH902_MESSAGE = (
+    "Dhan rejected the token; check DHAN_ACCESS_TOKEN and that the Data API plan is active "
+    "(DH-902 = PLUS/data subscription required)"
+)
+
+# Dhan errorCode -> (fatal, hint). Fatal codes are never retried: retrying cannot fix them.
+_ERROR_CODES: dict[str, tuple[bool, str]] = {
+    "DH-901": (True, "invalid authentication: check DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN"),
+    "DH-902": (True, DH902_MESSAGE),
+    "DH-903": (True, "user account error: check account/segment activation"),
+    "DH-904": (False, "rate limit exceeded: slow down requests"),
+    "DH-905": (False, "invalid request (missing or bad input fields)"),
+    "DH-906": (False, "order error: the order was not accepted"),
+    "DH-907": (False, "data error: could not fetch data for the given parameters"),
+    "DH-908": (False, "Dhan internal server error"),
+    "DH-909": (False, "Dhan network error"),
+    "DH-910": (False, "Dhan reported an unspecified error"),
+}
+
+
+def map_error_code(code: str, detail: str, status: int) -> AdapterError | None:
+    """Translate a Dhan ``errorCode`` into an AdapterError (None if the code is unknown)."""
+    entry = _ERROR_CODES.get(code.upper())
+    if entry is None:
+        return None
+    fatal, hint = entry
+    if code.upper() == "DH-904":
+        return RateLimitExceeded(f"Dhan {code} (HTTP {status}): {hint}: {detail}", endpoint="data")
+    if code.upper() == "DH-902":
+        return AuthenticationError(hint)
+    text = f"Dhan {code} (HTTP {status}): {hint}"
+    if detail:
+        text += f" [{detail}]"
+    return AuthenticationError(text) if fatal else AdapterError(text)
+
+
+def _error_code(body: Any) -> tuple[str, str]:
+    if isinstance(body, dict):
+        code = body.get("errorCode")
+        if isinstance(code, str) and code:
+            return code, str(body.get("errorMessage") or body.get("remarks") or "")
+    return "", ""
 
 
 class DhanHttpClient:
@@ -97,6 +140,16 @@ class DhanHttpClient:
             raise AdapterError(f"Dhan request timed out for {method} {path}") from e
         except httpx.RequestError as e:
             raise AdapterError(f"Dhan network request failed: {e}") from e
+
+        if response.is_error:
+            try:
+                err_body = response.json()
+            except ValueError:
+                err_body = None
+            code, detail = _error_code(err_body)
+            mapped = map_error_code(code, detail, response.status_code) if code else None
+            if mapped is not None:
+                raise mapped
 
         # Handle HTTP status codes
         if response.status_code in (401, 403):

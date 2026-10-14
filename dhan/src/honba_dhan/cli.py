@@ -50,6 +50,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: set {args.token_env} to the Honba bearer token", file=sys.stderr)
         return 2
 
+    from honba.adapters.errors import AdapterFatalError
+
     from honba_dhan import DhanAdapter
     from honba_dhan.driver import DhanBarDriver, IngestFatalError
 
@@ -77,6 +79,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         asyncio.run(_run())
     except IngestFatalError as exc:
+        print(f"fatal: {exc}", file=sys.stderr)
+        return 1
+    except AdapterFatalError as exc:  # rejected token / missing data plan: retrying cannot help
         print(f"fatal: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
