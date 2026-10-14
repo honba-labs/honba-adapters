@@ -36,6 +36,26 @@ if TYPE_CHECKING:
 __all__ = ["DhanMarketDataMixin"]
 
 
+# Maximum span of one /charts/intraday request, in days. UNVERIFIED: believed to be ~90 days from
+# Dhan's docs but never confirmed against the live API (the account has no Data API plan). If
+# Dhan rejects wide ranges, lower this single constant.
+INTRADAY_MAX_DAYS = 90
+
+
+def _windows(
+    start: dt.datetime, end: dt.datetime, max_days: int
+) -> list[tuple[dt.datetime, dt.datetime]]:
+    """Split ``[start, end]`` into consecutive windows of at most ``max_days`` days."""
+    step = dt.timedelta(days=max_days)
+    out: list[tuple[dt.datetime, dt.datetime]] = []
+    cur = start
+    while cur < end:
+        nxt = min(cur + step, end)
+        out.append((cur, nxt))
+        cur = nxt
+    return out or [(start, end)]
+
+
 def _to_ist(t: dt.datetime) -> dt.datetime:
     """Aware datetimes are converted to IST; naive ones are taken as IST already."""
     return t.replace(tzinfo=IST) if t.tzinfo is None else t.astimezone(IST)
@@ -141,36 +161,42 @@ class DhanMarketDataMixin:
         except ValueError as e:
             raise AdapterError(str(e)) from e
 
-        payload: dict[str, Any] = {
+        base: dict[str, Any] = {
             "securityId": sec_id,
             "exchangeSegment": seg,
             "instrument": "INDEX" if seg == "IDX_I" else "EQUITY",
             "oi": False,
         }
         if daily:
-            payload["expiryCode"] = 0
-            payload["fromDate"] = _to_ist(start).strftime("%Y-%m-%d")
-            payload["toDate"] = _to_ist(end).strftime("%Y-%m-%d")
+            windows = [(_to_ist(start), _to_ist(end))]
             endpoint = "/charts/historical"
+            fmt = "%Y-%m-%d"
         else:
-            payload["interval"] = interval
-            payload["fromDate"] = _to_ist(start).strftime("%Y-%m-%d %H:%M:%S")
-            payload["toDate"] = _to_ist(end).strftime("%Y-%m-%d %H:%M:%S")
+            base["interval"] = interval
+            windows = _windows(_to_ist(start), _to_ist(end), INTRADAY_MAX_DAYS)
             endpoint = "/charts/intraday"
+            fmt = "%Y-%m-%d %H:%M:%S"
 
-        try:
-            resp = await self._http.post(endpoint, pool="data", json_body=payload)
-        except AdapterError as e:
-            if e.fatal:
-                raise  # auth / data-plan errors keep their clear message and fatal type
-            raise AdapterError(f"historical bars failed for {instrument_id}: {e}") from e
+        by_ts: dict[int, Bar] = {}
+        for w_start, w_end in windows:
+            payload = {**base, "fromDate": w_start.strftime(fmt), "toDate": w_end.strftime(fmt)}
+            if daily:
+                payload["expiryCode"] = 0
+            try:
+                # Each call acquires a token from the shared "data" rate-limit pool (5/s).
+                resp = await self._http.post(endpoint, pool="data", json_body=payload)
+            except AdapterError as e:
+                if e.fatal:
+                    raise  # auth / data-plan errors keep their clear message and fatal type
+                raise AdapterError(f"historical bars failed for {instrument_id}: {e}") from e
 
-        if not resp or (isinstance(resp, dict) and resp.get("status") == "error"):
-            return []
-
-        bars = parse_historical_bars(
-            resp if isinstance(resp, dict) else {}, instrument_id, timeframe
-        )
+            if not resp or (isinstance(resp, dict) and resp.get("status") == "error"):
+                continue
+            for b in parse_historical_bars(
+                resp if isinstance(resp, dict) else {}, instrument_id, timeframe
+            ):
+                by_ts[b.ts] = b  # windows share an endpoint instant: later window wins
+        bars = [by_ts[k] for k in sorted(by_ts)]
         # ``Bar.ts`` is the bar START; drop the still-forming bar (closed bars only).
         now_ns = int(self._clock().timestamp() * 1_000_000_000)
         return [b for b in bars if b.ts + span_s * 1_000_000_000 <= now_ns]

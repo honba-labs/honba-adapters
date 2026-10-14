@@ -122,3 +122,91 @@ async def test_all_closed_bars_kept() -> None:
     a._clock = lambda: _now(3)
     bars = await a.historical_bars(RELIANCE, timeframe="1m", start=_now(0), end=_now(3))
     assert len(bars) == 3
+
+
+# ---------------------------------------------------------------- chunking
+
+
+def _ist(s: str) -> dt.datetime:
+    return dt.datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=IST)
+
+
+async def test_intraday_range_is_chunked_merged_sorted_deduped() -> None:
+    from honba_dhan.data import INTRADAY_MAX_DAYS
+
+    seen: list[tuple[str, str]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        seen.append((body["fromDate"], body["toDate"]))
+        lo, hi = _ist(body["fromDate"]), _ist(body["toDate"])
+        # one bar at each window edge (so the shared boundary bar is returned twice) + the
+        # series deliberately descending to prove the adapter sorts.
+        stamps = sorted({int(lo.timestamp()), int(hi.timestamp())}, reverse=True)
+        return httpx.Response(
+            200,
+            json={
+                "open": [1.0] * len(stamps),
+                "high": [2.0] * len(stamps),
+                "low": [0.5] * len(stamps),
+                "close": [1.5] * len(stamps),
+                "volume": [10.0] * len(stamps),
+                "timestamp": [float(t) for t in stamps],
+            },
+        )
+
+    a = DhanAdapter(
+        DhanConfig.live(client_id="c", access_token="t"),
+        http_transport=httpx.MockTransport(handler),
+    )
+    a._clock = lambda: dt.datetime(2030, 1, 1, tzinfo=dt.timezone.utc)
+    await a.connect()
+    start = dt.datetime(2024, 1, 1, 9, 15, tzinfo=IST)
+    end = start + dt.timedelta(days=2 * INTRADAY_MAX_DAYS + 10)
+    bars = await a.historical_bars(RELIANCE, timeframe="5m", start=start, end=end)
+
+    w1 = start + dt.timedelta(days=INTRADAY_MAX_DAYS)
+    w2 = start + dt.timedelta(days=2 * INTRADAY_MAX_DAYS)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    assert seen == [
+        (start.strftime(fmt), w1.strftime(fmt)),
+        (w1.strftime(fmt), w2.strftime(fmt)),
+        (w2.strftime(fmt), end.strftime(fmt)),
+    ]
+    ts = [b.ts for b in bars]
+    assert ts == sorted(ts)
+    assert len(ts) == len(set(ts)) == 4  # start, w1 (dup), w2 (dup), end
+    assert ts[0] == int(start.timestamp()) * 10**9
+
+
+async def test_short_range_is_one_request_and_each_window_hits_the_data_limiter() -> None:
+    seen: list[httpx.Request] = []
+    a = await _adapter(_resp(2), seen)
+    acquired: list[str] = []
+    real = a._http.limiter.acquire
+
+    async def spy(pool: str, tokens: int = 1) -> None:
+        acquired.append(pool)
+        await real(pool, tokens)
+
+    a._http.limiter.acquire = spy  # type: ignore[method-assign]
+    await a.historical_bars(
+        RELIANCE,
+        timeframe="1m",
+        start=dt.datetime(2024, 1, 2, 9, 15, tzinfo=IST),
+        end=dt.datetime(2024, 1, 2, 15, 30, tzinfo=IST),
+    )
+    assert len(seen) == 1 and acquired == ["data"]
+
+
+async def test_closed_bars_only_applies_across_windows() -> None:
+    seen: list[httpx.Request] = []
+    a = await _adapter(_resp(3), seen)
+    a._clock = lambda: _now(1.5)  # type: ignore[attr-defined]
+    bars = await a.historical_bars(
+        RELIANCE,
+        timeframe="1m",
+        start=dt.datetime(2024, 1, 2, 9, 15, tzinfo=IST),
+        end=dt.datetime(2024, 1, 2, 15, 30, tzinfo=IST),
+    )
+    assert len(bars) == 1
