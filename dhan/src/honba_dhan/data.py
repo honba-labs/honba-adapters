@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from honba.adapters.errors import AdapterError
@@ -25,6 +26,7 @@ from honba.domain.instrument import Instrument, InstrumentId
 from honba.domain.tick import QuoteTick
 
 from honba_dhan.parsing import parse_depth, parse_historical_bars, parse_quote
+from honba_dhan.timeframes import IST, timeframe_seconds, to_dhan_interval
 
 if TYPE_CHECKING:
     from honba_dhan.http import DhanHttpClient
@@ -34,6 +36,11 @@ if TYPE_CHECKING:
 __all__ = ["DhanMarketDataMixin"]
 
 
+def _to_ist(t: dt.datetime) -> dt.datetime:
+    """Aware datetimes are converted to IST; naive ones are taken as IST already."""
+    return t.replace(tzinfo=IST) if t.tzinfo is None else t.astimezone(IST)
+
+
 class DhanMarketDataMixin:
     """Implements MarketDataAdapter methods for DhanAdapter."""
 
@@ -41,6 +48,7 @@ class DhanMarketDataMixin:
     _instruments: DhanInstrumentMaster
     _feed: DhanFeedClient | None
     _subscriptions: dict[str, tuple[Subscription, StreamCallback]]
+    _clock: Callable[[], dt.datetime]
 
     async def instruments(self) -> list[Instrument]:
         """The full instrument list known to the adapter."""
@@ -123,14 +131,29 @@ class DhanMarketDataMixin:
             raise AdapterError(f"unknown instrument {instrument_id}")
         sec_id, seg = resolved
 
+        try:
+            span_s = timeframe_seconds(timeframe)
+            daily = span_s >= 86400
+            interval = None if daily else to_dhan_interval(timeframe)
+        except ValueError as e:
+            raise AdapterError(str(e)) from e
+
         payload: dict[str, Any] = {
             "securityId": sec_id,
             "exchangeSegment": seg,
-            "instrument": "EQUITY",
-            "fromDate": start.strftime("%Y-%m-%d"),
-            "toDate": end.strftime("%Y-%m-%d"),
+            "instrument": "INDEX" if seg == "IDX_I" else "EQUITY",
+            "oi": False,
         }
-        endpoint = "/charts/historical" if timeframe == "1d" else "/charts/intraday"
+        if daily:
+            payload["expiryCode"] = 0
+            payload["fromDate"] = _to_ist(start).strftime("%Y-%m-%d")
+            payload["toDate"] = _to_ist(end).strftime("%Y-%m-%d")
+            endpoint = "/charts/historical"
+        else:
+            payload["interval"] = interval
+            payload["fromDate"] = _to_ist(start).strftime("%Y-%m-%d %H:%M:%S")
+            payload["toDate"] = _to_ist(end).strftime("%Y-%m-%d %H:%M:%S")
+            endpoint = "/charts/intraday"
 
         try:
             resp = await self._http.post(endpoint, pool="data", json_body=payload)
@@ -140,9 +163,12 @@ class DhanMarketDataMixin:
         if not resp or (isinstance(resp, dict) and resp.get("status") == "error"):
             return []
 
-        return parse_historical_bars(
+        bars = parse_historical_bars(
             resp if isinstance(resp, dict) else {}, instrument_id, timeframe
         )
+        # ``Bar.ts`` is the bar START; drop the still-forming bar (closed bars only).
+        now_ns = int(self._clock().timestamp() * 1_000_000_000)
+        return [b for b in bars if b.ts + span_s * 1_000_000_000 <= now_ns]
 
     async def subscribe(
         self,

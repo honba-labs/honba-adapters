@@ -6,6 +6,8 @@ Implements the Adapter facade, MarketDataAdapter, and ExecutionAdapter role prot
 
 from __future__ import annotations
 
+import datetime as dt
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -127,6 +129,7 @@ class DhanAdapter(DhanExecutionMixin, DhanMarketDataMixin, Adapter):
         )
         self._connected = False
         self._session_info: SessionInfo | None = None
+        self._clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc)
 
         self._http = DhanHttpClient(config, transport=http_transport)
         self._feed: DhanFeedClient | None = None
