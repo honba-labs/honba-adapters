@@ -17,77 +17,95 @@ single recorded read. The recorded routes cover the read-only account and market
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
+import tomllib
 from honba.adapters import Adapter, resolve_adapter
 from honba.adapters.contract import verify_adapter_contract
 from honba_adapters_shared import recorded_transport
-from honba_dhan import DhanAdapter, DhanConfig, make_dhan_mock_handler
-from honba_zerodha import ZerodhaAdapter, ZerodhaConfig, make_zerodha_mock_handler
+from honba_dhan import DhanAdapter
 
+ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
-#: Recorded read endpoints per adapter. ``recorded_transport`` matches by the longest path
-#: fragment, so declaring the routes is enough; map order does not matter.
-_DHAN_ROUTES = {
-    "/fundlimit": "dhan/fund_limit.json",
-    "/marketfeed/quote": "dhan/quote.json",
-    "/charts/historical": "dhan/historical.json",
-    "/charts/intraday": "dhan/historical.json",
-    "/margincalculator": "dhan/margin.json",
-    "/trades": "dhan/trades.json",
-    "/positions": "dhan/positions.json",
-    "/holdings": "dhan/holdings.json",
-}
-
-_ZERODHA_ROUTES = {
-    "/user/margins": "zerodha/margins.json",
-    "/margins/orders": "zerodha/order_margins.json",
-    "/quote": "zerodha/quote.json",
-    "/instruments/historical": "zerodha/historical.json",
-    "/instruments": "zerodha/instruments.csv",
-    "/trades": "zerodha/trades.json",
-    "/portfolio/positions": "zerodha/positions.json",
-    "/portfolio/holdings": "zerodha/holdings.json",
-    "/session/token": "zerodha/token.json",
-}
+# Adding a broker needs no edit here. Every top-level ``<name>/`` package (``src/honba_<name>``)
+# is discovered. If ``tests/fixtures/<name>/routes.toml`` exists it is certified: the file names
+# the adapter/config/fallback hooks (``module:attr``) and maps recorded read routes to fixture
+# files in the same directory (see MIGRATION.md). A package without one is a scaffold and
+# shows up as a skipped placeholder -- unless it already declares a ``honba.adapters`` entry
+# point, in which case the missing routes file is a failure.
 
 
-def _dhan_transport() -> httpx.MockTransport:
-    return recorded_transport(
-        _DHAN_ROUTES, fixtures=FIXTURES, fallback=make_dhan_mock_handler()
+def _resolve(ref: str) -> Any:
+    module, _, attr = ref.partition(":")
+    return getattr(importlib.import_module(module), attr)
+
+
+def _discover() -> list[str]:
+    return sorted(
+        p.name
+        for p in ROOT.iterdir()
+        if p.is_dir()
+        and p.name != "shared"
+        and (p / "src" / f"honba_{p.name}").is_dir()
     )
 
 
-def _dhan() -> DhanAdapter:
-    return DhanAdapter(DhanConfig.paper(), http_transport=_dhan_transport())
+def _routes_file(name: str) -> Path:
+    return FIXTURES / name / "routes.toml"
 
 
-def _zerodha_transport() -> httpx.MockTransport:
+def _transport(name: str) -> httpx.MockTransport:
+    spec = tomllib.loads(_routes_file(name).read_text())
+    routes = {frag: f"{name}/{fixture}" for frag, fixture in spec["routes"].items()}
     return recorded_transport(
-        _ZERODHA_ROUTES, fixtures=FIXTURES, fallback=make_zerodha_mock_handler()
+        routes, fixtures=FIXTURES, fallback=_resolve(spec["fallback"])()
     )
 
 
-def _zerodha() -> ZerodhaAdapter:
-    return ZerodhaAdapter(ZerodhaConfig.paper(), http_transport=_zerodha_transport())
+def _build(name: str) -> Adapter:
+    spec = tomllib.loads(_routes_file(name).read_text())
+    adapter_cls: Callable[..., Adapter] = _resolve(spec["adapter"])
+    return adapter_cls(
+        _resolve(spec["config"]).paper(), http_transport=_transport(name)
+    )
 
 
-#: Every adapter this repository certifies, by registry name.
-_BUILDERS: dict[str, Callable[[], Adapter]] = {"dhan": _dhan, "zerodha": _zerodha}
+def _declares_entry_point(name: str) -> bool:
+    return "honba.adapters" in (ROOT / name / "pyproject.toml").read_text()
 
 
-@pytest.mark.parametrize("broker", sorted(_BUILDERS))
+def _param(name: str) -> Any:
+    if _routes_file(name).is_file():
+        return pytest.param(name, id=name)
+    if _declares_entry_point(name):
+        return pytest.param(name, id=name)  # fails in the test: routes.toml is required
+    return pytest.param(
+        name,
+        id=name,
+        marks=pytest.mark.skip(
+            reason=f"{name}: scaffold, not certified (no tests/fixtures/{name}/routes.toml)"
+        ),
+    )
+
+
+@pytest.mark.parametrize("broker", [_param(n) for n in _discover()])
 async def test_contract_suite(broker: str) -> None:
-    await verify_adapter_contract(_BUILDERS[broker]())
+    assert _routes_file(broker).is_file(), (
+        f"{broker} declares a honba.adapters entry point but has no "
+        f"tests/fixtures/{broker}/routes.toml; add it to certify the adapter"
+    )
+    await verify_adapter_contract(_build(broker))
 
 
 async def test_adapter_wiring_recorded_fixture() -> None:
     """The registry wires a real adapter and its reads come from the recorded response."""
-    adapter = resolve_adapter("dhan", mode="paper", http_transport=_dhan_transport())
+    adapter = resolve_adapter("dhan", mode="paper", http_transport=_transport("dhan"))
     assert isinstance(adapter, DhanAdapter)
 
     await adapter.connect()
@@ -101,5 +119,5 @@ async def test_adapter_wiring_recorded_fixture() -> None:
 
     # ...and the whole contract holds for a freshly wired adapter on the same recording.
     await verify_adapter_contract(
-        resolve_adapter("dhan", mode="paper", http_transport=_dhan_transport())
+        resolve_adapter("dhan", mode="paper", http_transport=_transport("dhan"))
     )

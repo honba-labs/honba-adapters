@@ -1,0 +1,17 @@
+# Contract-suite wiring for dhan, read by tests/test_contract_suite.py.
+# Importable "module:attr" hooks, then the recorded read routes.
+adapter = "honba_dhan:DhanAdapter"
+config = "honba_dhan:DhanConfig"  # must provide .paper()
+fallback = "honba_dhan:make_dhan_mock_handler"  # in-memory handler for the stateful order lifecycle
+
+# path fragment -> fixture file in this directory. The longest matching fragment wins,
+# so map order does not matter.
+[routes]
+"/fundlimit" = "fund_limit.json"
+"/marketfeed/quote" = "quote.json"
+"/charts/historical" = "historical.json"
+"/charts/intraday" = "historical.json"
+"/margincalculator" = "margin.json"
+"/trades" = "trades.json"
+"/positions" = "positions.json"
+"/holdings" = "holdings.json"
