@@ -72,6 +72,8 @@ full surface and value types.
 - `RateLimiter` / `TokenBucket` / `rate_limited` — token-bucket rate limiting with an
   injectable clock.
 - `TOTP` / `TokenManager` / `FileTokenStore` — RFC 6238 TOTP and token management.
+- `WireMap` / `assert_covers` — one-dict honba-to-wire mappings (reverse derived, duplicates
+  rejected) and a check that every declared capability has a mapping.
 - `ReconnectingWebSocketClient` / `SequenceTracker` — reconnecting transport with
   gap detection.
 
@@ -88,6 +90,27 @@ pip install -e ../honba/python          # core: honba.adapters.*
 pip install -e "shared[dev]"            # contract suite + dev deps
 pip install -e dhan -e zerodha          # the implemented adapters
 ```
+
+## Configuration
+
+Credentials come from the environment, one prefix per adapter (`DHAN_`, `ZERODHA_`).
+`<PREFIX>MODE` is `live` (the default) or `paper`.
+
+| Adapter | Variables (`<PREFIX>` = `DHAN_` / `ZERODHA_`) |
+|---|---|
+| dhan | `<PREFIX>CLIENT_ID`, `<PREFIX>ACCESS_TOKEN`, `<PREFIX>MODE` |
+| zerodha | `<PREFIX>API_KEY`, `<PREFIX>ACCESS_TOKEN`, `<PREFIX>API_SECRET` (optional), `<PREFIX>USER_ID` (optional), `<PREFIX>MODE` |
+
+- `XConfig.from_env(prefix="DHAN_")` reads that set; pass another prefix to run several
+  accounts side by side.
+- **Credentials are required.** `DhanAdapter()` / `ZerodhaAdapter()` with no config and no
+  credentials in the environment raises `AuthenticationError` naming the missing variables.
+  For simulation ask for it explicitly: `mode="paper"`, `XConfig.paper()` or
+  `<PREFIX>MODE=paper` (paper mode needs no credentials and uses an in-memory transport).
+- Declared capabilities (exchanges, products, order types, time in force, features) are
+  tabulated in each adapter's README. `trailing_stop` is not supported by either broker.
+- `HONBA_CACHE_DIR` moves the cache root; each adapter uses `$HONBA_CACHE_DIR/<broker>`
+  (default `~/.cache/honba/<broker>`).
 
 ## Usage
 
@@ -147,7 +170,21 @@ export DHAN_CLIENT_ID=... DHAN_ACCESS_TOKEN=...
 python -m pytest -m live dhan/tests/live -v
 ```
 
-Lint with `ruff check .` (line length 100).
+Lint with `ruff check .` and `ruff format --check .` (line length 100).
+
+### Certification (contract suite)
+
+An adapter is certified when `test_contract_suite[<name>]` passes:
+
+```sh
+python -m pytest tests/test_contract_suite.py -v
+```
+
+The suite runs `honba.adapters.contract.verify_adapter_contract` over every package that has
+`tests/fixtures/<name>/routes.toml`. Read endpoints are replayed from recorded responses in
+that directory; the stateful order lifecycle uses the adapter's in-memory mock handler. Packages
+without a `routes.toml` (the six scaffolds) are discovered automatically and reported as
+skipped placeholders. Needs Python 3.11+ (`tomllib`).
 
 ## Smoke test runner
 
@@ -181,18 +218,27 @@ are ASCII alphanumeric, at most 20 characters. Ambiguous submits are reconciled 
 the next call. Full behaviour is in
 [`honba-docs/.../india/brokers.md`](../honba-docs/docs/india/brokers.md).
 
-## Adding an adapter
+## Adding a broker
 
-Start from the Dhan package as the template, implement the facade and both role
-protocols, add fixtures and tests, run `assert_adapter_contract`, and declare the entry
-point:
+Start from `dhan/` as the template, then:
 
-```toml
-[project.entry-points."honba.adapters"]
-mybroker = "honba_mybroker:MyBrokerAdapter"
-```
+1. Implement the facade and both roles in `<name>/src/honba_<name>/`, declaring exactly what
+   the broker supports in `AdapterCapabilities`.
+2. Build the honba-to-wire tables with `honba_adapters_shared.WireMap` and call
+   `assert_covers(capabilities, order_types=..., products=..., tif=...)` at import, so a
+   declared capability without a mapping fails immediately instead of at order time.
+3. Declare the entry point in `<name>/pyproject.toml`:
+   ```toml
+   [project.entry-points."honba.adapters"]
+   mybroker = "honba_mybroker:MyBrokerAdapter"
+   ```
+4. Record read responses in `tests/fixtures/<name>/` and add `routes.toml` there (adapter,
+   config and fallback `module:attr` hooks plus the route-to-file map). The contract suite picks
+   the package up with no edit to `tests/test_contract_suite.py`.
+5. Add the package to `pytest.ini` (`pythonpath`, `testpaths`), `.github/workflows/ci.yml`
+   (`pip install -e`) and the install line above.
 
-The step-by-step guide is
+Details are in [MIGRATION.md](MIGRATION.md) and
 [Adding Broker Adapters](../honba-docs/book/src/contributing/adding_adapters.md).
 
 ## Testing and the honba dependency

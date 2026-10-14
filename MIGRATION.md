@@ -57,34 +57,33 @@ registry resolves the adapter and that a read returns the *recorded* value.
    transport over them. Save the responses from real API calls or documented examples.
 4. Add the package's own `tests/test_contract.py` (a fast, mock-backed run), parsing tests
    that use `load_fixture`, and error-path tests.
-5. Add the package to `_BUILDERS` and the route maps in `tests/test_contract_suite.py`, and
-   to the root `pytest.ini` `testpaths` if it gets its own test root.
+5. Add `tests/fixtures/<name>/routes.toml` next to the recorded responses (see below). The
+   contract suite discovers `<name>/` from the directory layout, so `tests/test_contract_suite.py`
+   needs no edit; until the file exists the package is reported as a skipped placeholder, and once
+   it declares an entry point a missing `routes.toml` fails the suite. Add the package to the root
+   `pytest.ini` `pythonpath` and, if it has its own tests, `testpaths`.
 6. Declare the entry point in `pyproject.toml` and add the package to `.github/workflows/ci.yml`.
 7. Add the package to the install list in `README.md` and to the CI `pip install`.
 
+Also build the honba-to-wire tables with `honba_adapters_shared.WireMap` and call
+`assert_covers(capabilities, order_types=..., products=..., tif=...)` at import, so a declared
+capability without a mapping is caught immediately.
+
 ## Adding another recorded adapter to the shared suite
 
-Declare the read routes and point the builder at the package's handler:
+Add `tests/fixtures/<name>/routes.toml`; the suite builds the adapter from it:
 
-```python
-from honba_adapters_shared import recorded_transport
+```toml
+adapter = "honba_mybroker:MyBrokerAdapter"
+config = "honba_mybroker:MyBrokerConfig"          # must provide .paper()
+fallback = "honba_mybroker:make_mybroker_mock_handler"
 
-_ROUTES = {
-    "/quote": "mybroker/quote.json",
-    "/portfolio/positions": "mybroker/positions.json",
-}
-
-
-def _mybroker():
-    return MyBrokerAdapter(
-        MyBrokerConfig.paper(),
-        http_transport=recorded_transport(
-            _ROUTES, fixtures=FIXTURES, fallback=make_mybroker_mock_handler()
-        ),
-    )
+[routes]   # path fragment -> fixture file in this directory
+"/quote" = "quote.json"
+"/portfolio/positions" = "positions.json"
 ```
 
-`recorded_transport` matches a request by the **longest** path fragment contained in its
+`honba_adapters_shared.recorded_transport` matches a request by the **longest** path fragment contained in its
 path, so `/instruments/historical/738561/day` is served by `/instruments/historical` and not
 by the shorter `/instruments`. A `.json` fixture is a 200 JSON body; `.csv` is 200 text.
 Any request no fragment matches goes to `fallback`.
