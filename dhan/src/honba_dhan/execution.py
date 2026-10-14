@@ -21,11 +21,15 @@ from honba.adapters.models import (
     Product,
 )
 from honba.domain.instrument import InstrumentId
-from honba.domain.order import OrderIntent, OrderStatus, OrderType
+from honba.domain.order import OrderIntent, OrderStatus
 from honba.domain.position import Position
 from honba.domain.trade import Trade
 
-from honba_dhan.constants import HONBA_PRODUCT_TO_DHAN
+from honba_dhan.constants import (
+    HONBA_ORDER_TYPE_TO_DHAN,
+    HONBA_PRODUCT_TO_DHAN,
+    HONBA_TIF_TO_DHAN,
+)
 from honba_dhan.parsing import (
     build_order_payload,
     parse_funds,
@@ -69,13 +73,12 @@ class DhanExecutionMixin:
         # Pre-flight capability checks
         if product not in HONBA_PRODUCT_TO_DHAN:
             raise CapabilityError(f"product {product.value} is not supported by Dhan")
-        if intent.order_type not in (
-            OrderType.MARKET,
-            OrderType.LIMIT,
-            OrderType.STOP_MARKET,
-            OrderType.STOP_LIMIT,
-        ):
+        if intent.order_type not in HONBA_ORDER_TYPE_TO_DHAN:
             raise CapabilityError(f"order type {intent.order_type.value} is not supported by Dhan")
+        if intent.time_in_force not in HONBA_TIF_TO_DHAN:
+            raise CapabilityError(
+                f"time in force {intent.time_in_force.value} is not supported by Dhan"
+            )
 
         # Idempotency check: if already placed with client_order_id, return cached report
         if client_order_id and client_order_id in self._orders_by_client_id:

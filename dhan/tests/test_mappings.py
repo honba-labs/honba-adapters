@@ -69,3 +69,25 @@ def test_order_payload_validity_follows_time_in_force() -> None:
 
     assert validity(TimeInForce.DAY) == "DAY"
     assert validity(TimeInForce.IOC) == "IOC"
+
+
+async def test_place_order_rejects_unmapped_time_in_force_preflight() -> None:
+    from honba.adapters import CapabilityError
+    from honba.adapters.models import Product
+    from honba.domain.instrument import InstrumentId
+    from honba.domain.order import OrderIntent, OrderSide
+
+    adapter = DhanAdapter(DhanConfig.paper())
+    await adapter.connect()
+    try:
+        intent = OrderIntent(
+            instrument_id=InstrumentId("RELIANCE", "NSE"),
+            side=OrderSide.BUY,
+            quantity=1.0,
+            order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.GTC,
+        )
+        with pytest.raises(CapabilityError, match="gtc"):
+            await adapter.place_order(intent, product=Product.DELIVERY)
+    finally:
+        await adapter.disconnect()
