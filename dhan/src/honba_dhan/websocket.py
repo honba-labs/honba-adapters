@@ -11,26 +11,44 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import logging
 import struct
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
 
 from honba.adapters.models import DepthLevel, MarketDepth, StreamCallback, StreamMode
 from honba.domain.instrument import InstrumentId
-from honba.domain.tick import QuoteTick
+from honba.domain.tick import AggressorSide, QuoteTick, TradeTick
 from honba_adapters_shared.websocket import ReconnectingWebSocketClient
 
 from honba_dhan.constants import (
     DHAN_FEED_CODE_DEPTH_20,
     DHAN_FEED_CODE_LTP,
     DHAN_FEED_CODE_QUOTE,
+    DHAN_FEED_V2_DISCONNECT,
+    DHAN_FEED_V2_FULL,
+    DHAN_FEED_V2_QUOTE,
+    DHAN_FEED_V2_REQUEST,
+    DHAN_FEED_V2_SEGMENTS,
+    DHAN_FEED_V2_TICKER,
 )
+
+logger = logging.getLogger("honba_dhan.feed")
 
 if TYPE_CHECKING:
     from honba_dhan.config import DhanConfig
     from honba_dhan.instruments import DhanInstrumentMaster
 
-__all__ = ["DhanFeedClient", "unpack_depth_20_packet", "unpack_ltp_packet", "unpack_quote_packet"]
+__all__ = [
+    "DhanFeedClient",
+    "FeedTick",
+    "unpack_depth_20_packet",
+    "unpack_ltp_packet",
+    "unpack_quote_packet",
+    "unpack_v2_packet",
+]
 
 
 def unpack_ltp_packet(
@@ -138,29 +156,158 @@ def unpack_depth_20_packet(
     )
 
 
+# --------------------------------------------------------------------------- feed v2 decoding
+#
+# Dhan market feed v2 (https://dhanhq.co/docs/v2/live-market-feed/): all numbers are
+# LITTLE-ENDIAN; prices are float32; auth is via the connection URL, not a message.
+#   header (8B)  : code u8, msg_len u16, segment u8, security_id u32
+#   ticker  (2)  : ltp f32, ltt u32 (epoch s)                                  -> 16 B
+#   quote   (4)  : ltp f32, ltq u16, ltt u32, atp f32, volume u32 (cumulative day),
+#                  sell_qty u32, buy_qty u32, open f32, close f32, high f32, low f32 -> 50 B
+#   full    (8)  : as quote but after buy_qty: oi u32, oi_hi u32, oi_lo u32, open, close,
+#                  high, low (f32), then 5 depth levels x 20 B (bid_qty u32, ask_qty u32,
+#                  bid_orders u16, ask_orders u16, bid_price f32, ask_price f32) -> 162 B
+_V2_HEADER = struct.Struct("<BHBI")
+_V2_TICKER = struct.Struct("<fI")
+_V2_QUOTE = struct.Struct("<fHIfIIIffff")
+_V2_FULL_HEAD = struct.Struct("<fHIfIIIIIIffff")
+_V2_DEPTH_LEVEL = struct.Struct("<IIHHff")
+_V2_MIN_LEN = {DHAN_FEED_V2_TICKER: 16, DHAN_FEED_V2_QUOTE: 50, DHAN_FEED_V2_FULL: 162}
+
+# Assumption (UNVERIFIED against a live session): LTT is standard UNIX epoch seconds.
+LTT_EPOCH_OFFSET_S = 0
+
+
+@dataclass(frozen=True, slots=True)
+class FeedTick:
+    """One decoded last-trade update; ``cum_volume`` is the cumulative day volume if known."""
+
+    instrument_id: InstrumentId
+    ts: int  # unix nanoseconds, exchange last-trade time (receive time if absent)
+    price: float
+    cum_volume: int | None
+    last_qty: int = 0
+
+
+def _px(value: float, segment: str) -> float:
+    """float32 wire price -> clean float (paise; 4 dp for currency segments)."""
+    return round(float(value), 4 if "CURRENCY" in segment else 2)
+
+
+def unpack_v2_packet(
+    data: bytes,
+    id_resolver: Callable[[str, str], InstrumentId | None],
+    *,
+    now_ns: int | None = None,
+) -> tuple[FeedTick, QuoteTick | None] | None:
+    """Decode a v2 ticker/quote/full packet. Returns ``None`` for other or malformed frames.
+
+    Exchange time comes from the packet's LTT; the local clock (``now_ns``) is only a fallback
+    when LTT is 0. Ticker/quote packets carry no top of book, so the paired ``QuoteTick`` is
+    only produced for full packets (real best bid/ask).
+    """
+    if len(data) < _V2_HEADER.size:
+        return None
+    code, _length, seg_byte, sec_id = _V2_HEADER.unpack_from(data, 0)
+    need = _V2_MIN_LEN.get(code)
+    if need is None or len(data) < need:
+        return None
+    segment = DHAN_FEED_V2_SEGMENTS.get(seg_byte, "NSE_EQ")
+    inst_id = id_resolver(str(sec_id), segment) or InstrumentId(str(sec_id), "NSE")
+    off = _V2_HEADER.size
+    if now_ns is None:
+        now_ns = int(dt.datetime.now(dt.timezone.utc).timestamp() * 1_000_000_000)
+
+    quote: QuoteTick | None = None
+    if code == DHAN_FEED_V2_TICKER:
+        ltp, ltt = _V2_TICKER.unpack_from(data, off)
+        vol: int | None = None
+        ltq = 0
+    elif code == DHAN_FEED_V2_QUOTE:
+        ltp, ltq, ltt, _atp, vol, *_rest = _V2_QUOTE.unpack_from(data, off)
+    else:
+        ltp, ltq, ltt, _atp, vol, *_rest = _V2_FULL_HEAD.unpack_from(data, off)
+        # best (first) of the 5 depth levels follows the fixed head
+        depth_off = off + _V2_FULL_HEAD.size
+        bq, aq, _bo, _ao, bp, ap = _V2_DEPTH_LEVEL.unpack_from(data, depth_off)
+        if bp > 0 and ap > 0 and bp <= ap:
+            quote = QuoteTick(
+                instrument_id=inst_id,
+                ts=0,  # patched below once ts is known
+                bid_price=_px(bp, segment),
+                ask_price=_px(ap, segment),
+                bid_size=float(bq),
+                ask_size=float(aq),
+            )
+
+    ts = (int(ltt) + LTT_EPOCH_OFFSET_S) * 1_000_000_000 if ltt > 0 else now_ns
+    if quote is not None:
+        quote = QuoteTick(
+            instrument_id=quote.instrument_id,
+            ts=ts,
+            bid_price=quote.bid_price,
+            ask_price=quote.ask_price,
+            bid_size=quote.bid_size,
+            ask_size=quote.ask_size,
+        )
+    tick = FeedTick(inst_id, ts, _px(ltp, segment), vol, int(ltq))
+    return tick, quote
+
+
 class DhanFeedClient:
-    """Manages WebSocket connection to Dhan feed server with packet decoding."""
+    """Manages the WebSocket connection to Dhan's feed (v2) with packet decoding.
+
+    Callbacks receive ``QuoteTick`` (full/depth mode) and ``TradeTick`` (last trade) events,
+    filtered to the instruments each subscription asked for. Internal listeners (e.g. the bar
+    aggregator) can additionally receive raw :class:`FeedTick` objects, which carry the
+    cumulative day volume that ``TradeTick`` cannot.
+    """
 
     def __init__(
         self,
         config: DhanConfig,
         instruments: DhanInstrumentMaster,
+        *,
+        ws: Any | None = None,
     ) -> None:
         self._config = config
         self._instruments = instruments
-        self._callbacks: list[StreamCallback] = []
-        self._subscribed_instruments: set[InstrumentId] = set()
+        # (instruments, mode, callback) per subscription; unfiltered add_callback uses None.
+        self._listeners: list[
+            tuple[frozenset[InstrumentId] | None, StreamMode, StreamCallback]
+        ] = []
+        self._tick_listeners: list[Callable[[FeedTick], None]] = []
+        self._subscribed: dict[InstrumentId, StreamMode] = {}
 
-        self._ws = ReconnectingWebSocketClient(
-            config.feed_url,
+        self._ws: Any = ws or ReconnectingWebSocketClient(
+            self._build_url(config),
             ping_interval=20.0,
             on_connected=self._on_connected,
             on_message=self._on_message,
         )
 
+    @staticmethod
+    def _build_url(config: DhanConfig) -> str:
+        """v2 authenticates in the URL. NEVER log this value: it embeds the access token."""
+        url = config.feed_url
+        if "token=" in url:
+            return url
+        q = urlencode(
+            {
+                "version": 2,
+                "token": config.access_token,
+                "clientId": config.client_id,
+                "authType": 2,
+            }
+        )
+        return f"{url}{'&' if '?' in url else '?'}{q}"
+
+    def __repr__(self) -> str:
+        return f"DhanFeedClient(connected={self.is_connected}, subscribed={len(self._subscribed)})"
+
     @property
     def is_connected(self) -> bool:
-        return self._ws.is_connected
+        return bool(self._ws.is_connected)
 
     async def start(self) -> None:
         await self._ws.start()
@@ -169,11 +316,17 @@ class DhanFeedClient:
         await self._ws.stop()
 
     def add_callback(self, callback: StreamCallback) -> None:
-        self._callbacks.append(callback)
+        self._listeners.append((None, StreamMode.QUOTE, callback))
 
     def remove_callback(self, callback: StreamCallback) -> None:
-        if callback in self._callbacks:
-            self._callbacks.remove(callback)
+        self._listeners = [x for x in self._listeners if x[2] != callback]
+
+    def add_tick_listener(self, listener: Callable[[FeedTick], None]) -> None:
+        self._tick_listeners.append(listener)
+
+    def remove_tick_listener(self, listener: Callable[[FeedTick], None]) -> None:
+        if listener in self._tick_listeners:
+            self._tick_listeners.remove(listener)
 
     async def subscribe(
         self,
@@ -183,11 +336,11 @@ class DhanFeedClient:
         callback: StreamCallback | None = None,
     ) -> None:
         if callback is not None:
-            self.add_callback(callback)
-        self._subscribed_instruments.update(instruments)
-
+            self._listeners.append((frozenset(instruments), mode, callback))
+        for inst in instruments:
+            self._subscribed[inst] = mode
         if self._ws.is_connected:
-            await self._send_subscription(instruments, is_subscribe=True)
+            await self._send_subscription(instruments, mode, is_subscribe=True)
 
     async def unsubscribe(
         self,
@@ -196,26 +349,28 @@ class DhanFeedClient:
         callback: StreamCallback | None = None,
     ) -> None:
         if callback is not None:
-            self.remove_callback(callback)
-        self._subscribed_instruments.difference_update(instruments)
-
-        if self._ws.is_connected:
-            await self._send_subscription(instruments, is_subscribe=False)
+            self._listeners = [x for x in self._listeners if x[2] != callback]
+        # Keep wire subscriptions that another listener still wants.
+        still_wanted: set[InstrumentId] = set()
+        for insts, _m, _cb in self._listeners:
+            if insts is not None:
+                still_wanted |= insts
+        gone = tuple(i for i in instruments if i not in still_wanted)
+        for inst in gone:
+            mode = self._subscribed.pop(inst, StreamMode.QUOTE)
+            if self._ws.is_connected:
+                await self._send_subscription((inst,), mode, is_subscribe=False)
 
     async def _on_connected(self) -> None:
-        """Authenticate session and restore subscriptions."""
-        auth_payload = {
-            "RequestCode": 11,
-            "clientId": self._config.client_id,
-            "token": self._config.access_token,
-        }
-        await self._ws.send_json(auth_payload)
-
-        if self._subscribed_instruments:
-            await self._send_subscription(tuple(self._subscribed_instruments), is_subscribe=True)
+        """Restore subscriptions after (re)connect; v2 needs no auth message."""
+        by_mode: dict[StreamMode, list[InstrumentId]] = {}
+        for inst, mode in self._subscribed.items():
+            by_mode.setdefault(mode, []).append(inst)
+        for mode, insts in by_mode.items():
+            await self._send_subscription(tuple(insts), mode, is_subscribe=True)
 
     async def _send_subscription(
-        self, instruments: tuple[InstrumentId, ...], *, is_subscribe: bool = True
+        self, instruments: tuple[InstrumentId, ...], mode: StreamMode, *, is_subscribe: bool
     ) -> None:
         instrument_list: list[dict[str, Any]] = []
         for inst_id in instruments:
@@ -223,38 +378,67 @@ class DhanFeedClient:
             if resolved:
                 sec_id, seg = resolved
                 instrument_list.append({"ExchangeSegment": seg, "SecurityId": sec_id})
-
         if not instrument_list:
             return
+        sub_code, unsub_code = DHAN_FEED_V2_REQUEST[mode.value]
+        # Dhan limits one request to 100 instruments.
+        for i in range(0, len(instrument_list), 100):
+            chunk = instrument_list[i : i + 100]
+            await self._ws.send_json(
+                {
+                    "RequestCode": sub_code if is_subscribe else unsub_code,
+                    "InstrumentCount": len(chunk),
+                    "InstrumentList": chunk,
+                }
+            )
 
-        payload = {
-            "RequestCode": 21 if is_subscribe else 22,
-            "InstrumentCount": len(instrument_list),
-            "InstrumentList": instrument_list,
-        }
-        await self._ws.send_json(payload)
-
-    async def _on_message(self, message: str | bytes) -> None:
-        """Process incoming binary feed packets."""
-        if isinstance(message, str):
-            return  # text control messages ignored
-
-        if len(message) < 8:
-            return
-
-        response_code = message[0]
-        id_resolver = self._instruments.resolve_from_dhan
-        event = None
-
-        if response_code == DHAN_FEED_CODE_LTP:
-            event = unpack_ltp_packet(message, id_resolver)
-        elif response_code == DHAN_FEED_CODE_QUOTE:
-            event = unpack_quote_packet(message, id_resolver)
-        elif response_code == DHAN_FEED_CODE_DEPTH_20:
-            event = unpack_depth_20_packet(message, id_resolver)
-
-        if event is not None:
-            for cb in self._callbacks:
+    def _dispatch(self, event: QuoteTick | TradeTick | Any) -> None:
+        inst = event.instrument_id
+        for insts, _mode, cb in list(self._listeners):
+            if insts is None or inst in insts:
                 with contextlib.suppress(Exception):
                     cb_fn: Any = cb
                     cb_fn(event)
+
+    async def _on_message(self, message: str | bytes) -> None:
+        """Process incoming binary feed packets."""
+        if isinstance(message, str) or len(message) < 8:
+            return  # text control messages ignored
+
+        code = message[0]
+        if code == DHAN_FEED_V2_DISCONNECT:
+            logger.warning("Dhan feed sent a disconnect notice")
+            return
+        if code in (DHAN_FEED_V2_TICKER, DHAN_FEED_V2_QUOTE, DHAN_FEED_V2_FULL):
+            decoded = unpack_v2_packet(message, self._instruments.resolve_from_dhan)
+            if decoded is None:
+                return
+            tick, quote = decoded
+            for listener in list(self._tick_listeners):
+                with contextlib.suppress(Exception):
+                    listener(tick)
+            self._dispatch(
+                TradeTick(
+                    instrument_id=tick.instrument_id,
+                    ts=tick.ts,
+                    price=tick.price,
+                    size=float(tick.last_qty),
+                    aggressor_side=AggressorSide.NO_AGGRESSOR,
+                    trade_id=f"{tick.ts}-{tick.cum_volume or 0}",
+                )
+            )
+            if quote is not None:
+                self._dispatch(quote)
+            return
+
+        # Legacy (pre-v2) big-endian layouts, retained for the existing decoders/tests.
+        id_resolver = self._instruments.resolve_from_dhan
+        event = None
+        if code == DHAN_FEED_CODE_LTP:
+            event = unpack_ltp_packet(message, id_resolver)
+        elif code == DHAN_FEED_CODE_QUOTE:
+            event = unpack_quote_packet(message, id_resolver)
+        elif code == DHAN_FEED_CODE_DEPTH_20:
+            event = unpack_depth_20_packet(message, id_resolver)
+        if event is not None:
+            self._dispatch(event)

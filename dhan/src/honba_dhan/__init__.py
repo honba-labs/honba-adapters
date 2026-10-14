@@ -94,6 +94,7 @@ class DhanAdapter(DhanExecutionMixin, DhanMarketDataMixin, Adapter):
         *,
         http_transport: httpx.AsyncBaseTransport | None = None,
         instruments: DhanInstrumentMaster | None = None,
+        feed_factory: Callable[[DhanConfig, DhanInstrumentMaster], DhanFeedClient] | None = None,
         **kwargs: Any,
     ) -> None:
         if config is None:
@@ -133,11 +134,17 @@ class DhanAdapter(DhanExecutionMixin, DhanMarketDataMixin, Adapter):
 
         self._http = DhanHttpClient(config, transport=http_transport)
         self._feed: DhanFeedClient | None = None
+        self._feed_factory = feed_factory
 
         # State tracking for idempotency & orders
         self._orders_by_id = {}
         self._orders_by_client_id = {}
         self._subscriptions: dict[str, tuple[Subscription, StreamCallback]] = {}
+
+    @property
+    def feed(self) -> DhanFeedClient | None:
+        """The live feed client (None when not connected or in paper mode)."""
+        return self._feed
 
     def capabilities(self) -> AdapterCapabilities:
         """The static capability descriptor for Dhan."""
@@ -162,6 +169,14 @@ class DhanAdapter(DhanExecutionMixin, DhanMarketDataMixin, Adapter):
         if self._config.mode == RunMode.LIVE and self._http_transport is None:
             await self._http.get("/fundlimit", pool="orders")
 
+        # Live streaming feed: real in live mode, injectable for tests, absent in paper mode.
+        if self._feed_factory is not None:
+            self._feed = self._feed_factory(self._config, self._instruments)
+        elif self._config.mode == RunMode.LIVE and self._http_transport is None:
+            self._feed = DhanFeedClient(self._config, self._instruments)
+        if self._feed is not None:
+            await self._feed.start()
+
         self._connected = True
         self._session_info = SessionInfo(
             user_id=self._config.client_id,
@@ -177,6 +192,7 @@ class DhanAdapter(DhanExecutionMixin, DhanMarketDataMixin, Adapter):
 
         self._connected = False
         self._session_info = None
+        self._subscriptions.clear()
 
         if self._feed is not None:
             await self._feed.stop()

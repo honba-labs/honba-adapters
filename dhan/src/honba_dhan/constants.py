@@ -15,6 +15,12 @@ __all__ = [
     "DHAN_FEED_CODE_DEPTH_20",
     "DHAN_FEED_CODE_LTP",
     "DHAN_FEED_CODE_QUOTE",
+    "DHAN_FEED_V2_DISCONNECT",
+    "DHAN_FEED_V2_FULL",
+    "DHAN_FEED_V2_QUOTE",
+    "DHAN_FEED_V2_REQUEST",
+    "DHAN_FEED_V2_SEGMENTS",
+    "DHAN_FEED_V2_TICKER",
     "DHAN_ORDER_TYPE_TO_HONBA",
     "DHAN_ORDER_TYPE_WIRE",
     "DHAN_PRODUCT_TO_HONBA",
@@ -35,7 +41,32 @@ DEFAULT_REST_URL: Final[str] = "https://api.dhan.co/v2"
 DEFAULT_FEED_URL: Final[str] = "wss://api-feed.dhan.co"
 DEFAULT_DATA_URL: Final[str] = "https://images.dhan.co/api-data"
 
-# WebSocket Feed Message Codes
+# WebSocket Feed v2 (little-endian binary, auth via URL query) response codes
+DHAN_FEED_V2_TICKER: Final[int] = 2
+DHAN_FEED_V2_QUOTE: Final[int] = 4
+DHAN_FEED_V2_FULL: Final[int] = 8
+DHAN_FEED_V2_DISCONNECT: Final[int] = 50
+
+# v2 request codes (subscribe, unsubscribe) per feed mode
+DHAN_FEED_V2_REQUEST: Final[dict[str, tuple[int, int]]] = {
+    "ltp": (15, 16),
+    "quote": (17, 18),
+    "depth": (21, 22),
+}
+
+# v2 header segment byte -> exchange segment name
+DHAN_FEED_V2_SEGMENTS: Final[dict[int, str]] = {
+    0: "IDX_I",
+    1: "NSE_EQ",
+    2: "NSE_FNO",
+    3: "NSE_CURRENCY",
+    4: "BSE_EQ",
+    5: "MCX_COMM",
+    7: "BSE_CURRENCY",
+    8: "BSE_FNO",
+}
+
+# WebSocket Feed Message Codes (legacy, pre-v2 layout kept for the existing decoders)
 DHAN_FEED_CODE_LTP: Final[int] = 17
 DHAN_FEED_CODE_QUOTE: Final[int] = 18
 DHAN_FEED_CODE_DEPTH_20: Final[int] = 19
