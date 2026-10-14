@@ -21,8 +21,14 @@ from honba.adapters.models import (
     Subscription,
 )
 from honba.domain.order import OrderType, TimeInForce
+from honba_adapters_shared.maps import assert_covers
 
 from honba_zerodha.config import ZerodhaConfig
+from honba_zerodha.constants import (
+    ZERODHA_ORDER_TYPE_WIRE,
+    ZERODHA_PRODUCT_WIRE,
+    ZERODHA_TIF_WIRE,
+)
 from honba_zerodha.data import ZerodhaMarketDataMixin
 from honba_zerodha.execution import ZerodhaExecutionMixin
 from honba_zerodha.http import ZerodhaHttpClient
@@ -69,6 +75,14 @@ _ZERODHA_CAPABILITIES = AdapterCapabilities(
     ),
     time_in_force=frozenset({TimeInForce.DAY, TimeInForce.IOC}),
     stream_modes=frozenset({StreamMode.LTP, StreamMode.QUOTE, StreamMode.DEPTH}),
+)
+
+# Fail at import, not at order time, if a declared capability has no wire mapping.
+assert_covers(
+    _ZERODHA_CAPABILITIES,
+    order_types=ZERODHA_ORDER_TYPE_WIRE,
+    products=ZERODHA_PRODUCT_WIRE,
+    tif=ZERODHA_TIF_WIRE,
 )
 
 

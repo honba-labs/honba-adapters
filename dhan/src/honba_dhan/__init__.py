@@ -21,8 +21,14 @@ from honba.adapters.models import (
     Subscription,
 )
 from honba.domain.order import OrderType, TimeInForce
+from honba_adapters_shared.maps import assert_covers
 
 from honba_dhan.config import DhanConfig
+from honba_dhan.constants import (
+    DHAN_ORDER_TYPE_WIRE,
+    DHAN_PRODUCT_WIRE,
+    DHAN_TIF_WIRE,
+)
 from honba_dhan.data import DhanMarketDataMixin
 from honba_dhan.execution import DhanExecutionMixin
 from honba_dhan.http import DhanHttpClient
@@ -64,6 +70,14 @@ _DHAN_CAPABILITIES = AdapterCapabilities(
     ),
     time_in_force=frozenset({TimeInForce.DAY, TimeInForce.IOC}),
     stream_modes=frozenset({StreamMode.LTP, StreamMode.QUOTE, StreamMode.DEPTH}),
+)
+
+# Fail at import, not at order time, if a declared capability has no wire mapping.
+assert_covers(
+    _DHAN_CAPABILITIES,
+    order_types=DHAN_ORDER_TYPE_WIRE,
+    products=DHAN_PRODUCT_WIRE,
+    tif=DHAN_TIF_WIRE,
 )
 
 

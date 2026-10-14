@@ -4,6 +4,7 @@
 - Contract suite an adapter must pass (:func:`assert_adapter_contract`)
 - Boundary check that keeps broker wire types inside their adapter (:func:`find_boundary_violations`)
 - Test fixture loader and recorded-response transport (:func:`load_fixture`, :func:`fixtures_dir`, :func:`recorded_transport`)
+- One-dict wire mappings and capability coverage guard (:class:`WireMap`, :func:`assert_covers`)
 - Token bucket rate limiter (:class:`RateLimiter`, :class:`TokenBucket`, :func:`rate_limited`)
 - RFC 6238 TOTP generator and token management (:class:`TOTP`, :class:`TokenManager`, :class:`TokenRecord`)
 - Reconnecting WebSocket transport and sequence tracker (:class:`ReconnectingWebSocketClient`, :class:`SequenceTracker`)
@@ -53,6 +54,12 @@ from honba_adapters_shared.errors import (
     WebSocketError,
 )
 from honba_adapters_shared.fixtures import fixtures_dir, load_fixture, recorded_transport
+from honba_adapters_shared.maps import (
+    AmbiguousMappingError,
+    MappingCoverageError,
+    WireMap,
+    assert_covers,
+)
 from honba_adapters_shared.rate_limit import (
     RateLimit,
     RateLimiter,
@@ -75,6 +82,7 @@ __all__ = [
     "AdapterFatalError",
     "AdapterNotFound",
     "AdapterRegistry",
+    "AmbiguousMappingError",
     "AuthenticationError",
     "BoundaryViolation",
     "Capability",
@@ -82,6 +90,7 @@ __all__ = [
     "ContractViolation",
     "ExecutionAdapter",
     "FileTokenStore",
+    "MappingCoverageError",
     "MarketDataAdapter",
     "MemoryTokenStore",
     "RateLimit",
@@ -100,7 +109,9 @@ __all__ = [
     "TokenStore",
     "WebSocketError",
     "WebSocketState",
+    "WireMap",
     "assert_adapter_contract",
+    "assert_covers",
     "available_adapters",
     "capability_for_method",
     "default_registry",

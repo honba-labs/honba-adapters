@@ -4,51 +4,44 @@ from __future__ import annotations
 
 from honba.adapters.models import Product, StreamMode
 from honba.domain.order import OrderSide, OrderStatus, OrderType, TimeInForce
+from honba_adapters_shared.maps import WireMap
 
 ZERODHA_DEFAULT_HTTP_ENDPOINT: str = "https://api.kite.trade"
 ZERODHA_DEFAULT_WS_ENDPOINT: str = "wss://ws.kite.trade"
 
-ZERODHA_PRODUCT_MAP: dict[Product, str] = {
-    Product.DELIVERY: "CNC",
-    Product.INTRADAY: "MIS",
-    Product.CARRY: "NRML",
-}
+# Wire mappings: one forward dict each; the reverse table is derived (see WireMap).
+ZERODHA_PRODUCT_WIRE: WireMap[Product] = WireMap(
+    {Product.DELIVERY: "CNC", Product.INTRADAY: "MIS", Product.CARRY: "NRML"},
+    name="zerodha product",
+)
 
-ZERODHA_REVERSE_PRODUCT_MAP: dict[str, Product] = {
-    "CNC": Product.DELIVERY,
-    "MIS": Product.INTRADAY,
-    "NRML": Product.CARRY,
-}
-
-ZERODHA_ORDER_TYPE_MAP: dict[OrderType, str] = {
-    OrderType.MARKET: "MARKET",
-    OrderType.LIMIT: "LIMIT",
-    OrderType.STOP_LIMIT: "SL",
-    OrderType.STOP_MARKET: "SL-M",
-}
-
-ZERODHA_REVERSE_ORDER_TYPE_MAP: dict[str, OrderType] = {
-    "MARKET": OrderType.MARKET,
-    "LIMIT": OrderType.LIMIT,
-    "SL": OrderType.STOP_LIMIT,
-    "SL-M": OrderType.STOP_MARKET,
-}
+ZERODHA_ORDER_TYPE_WIRE: WireMap[OrderType] = WireMap(
+    {
+        OrderType.MARKET: "MARKET",
+        OrderType.LIMIT: "LIMIT",
+        OrderType.STOP_LIMIT: "SL",
+        OrderType.STOP_MARKET: "SL-M",
+    },
+    name="zerodha order type",
+)
 
 # Kite validity: only DAY and IOC exist for regular orders.
-ZERODHA_TIF_MAP: dict[TimeInForce, str] = {
-    TimeInForce.DAY: "DAY",
-    TimeInForce.IOC: "IOC",
-}
+ZERODHA_TIF_WIRE: WireMap[TimeInForce] = WireMap(
+    {TimeInForce.DAY: "DAY", TimeInForce.IOC: "IOC"}, name="zerodha time in force"
+)
 
-ZERODHA_SIDE_MAP: dict[OrderSide, str] = {
-    OrderSide.BUY: "BUY",
-    OrderSide.SELL: "SELL",
-}
+ZERODHA_SIDE_WIRE: WireMap[OrderSide] = WireMap(
+    {OrderSide.BUY: "BUY", OrderSide.SELL: "SELL"}, name="zerodha side"
+)
 
-ZERODHA_REVERSE_SIDE_MAP: dict[str, OrderSide] = {
-    "BUY": OrderSide.BUY,
-    "SELL": OrderSide.SELL,
-}
+# Public names kept for existing importers; aliases of the maps above.
+ZERODHA_PRODUCT_MAP: dict[Product, str] = ZERODHA_PRODUCT_WIRE.forward
+ZERODHA_REVERSE_PRODUCT_MAP: dict[str, Product] = ZERODHA_PRODUCT_WIRE.reverse
+ZERODHA_ORDER_TYPE_MAP: dict[OrderType, str] = ZERODHA_ORDER_TYPE_WIRE.forward
+ZERODHA_REVERSE_ORDER_TYPE_MAP: dict[str, OrderType] = ZERODHA_ORDER_TYPE_WIRE.reverse
+ZERODHA_TIF_MAP: dict[TimeInForce, str] = ZERODHA_TIF_WIRE.forward
+ZERODHA_SIDE_MAP: dict[OrderSide, str] = ZERODHA_SIDE_WIRE.forward
+ZERODHA_REVERSE_SIDE_MAP: dict[str, OrderSide] = ZERODHA_SIDE_WIRE.reverse
 
 ZERODHA_STATUS_MAP: dict[str, OrderStatus] = {
     "COMPLETE": OrderStatus.FILLED,

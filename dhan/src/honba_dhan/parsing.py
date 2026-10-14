@@ -41,6 +41,7 @@ from honba_dhan.constants import (
     HONBA_ORDER_TYPE_TO_DHAN,
     HONBA_PRODUCT_TO_DHAN,
     HONBA_SIDE_TO_DHAN,
+    HONBA_TIF_TO_DHAN,
 )
 
 __all__ = [
@@ -365,7 +366,7 @@ def build_order_payload(
         "transactionType": dhan_side,
         "orderType": dhan_order_type,
         "productType": dhan_product,
-        "validity": "DAY",
+        "validity": HONBA_TIF_TO_DHAN.get(intent.time_in_force, "DAY"),
         "quantity": int(intent.quantity),
     }
 
