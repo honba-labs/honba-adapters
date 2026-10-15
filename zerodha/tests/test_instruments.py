@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+
+import pytest
 from honba.domain.instrument import InstrumentId
 
 from honba_zerodha.instruments import ZerodhaInstrumentMaster
@@ -19,6 +22,12 @@ def test_core_instruments_pre_seeded() -> None:
     symbol, exchange = master.resolve_tradingsymbol_and_exchange(reliance_id)
     assert symbol == "RELIANCE"
     assert exchange == "NSE"
+
+
+def test_master_builds_without_duckdb(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "duckdb", None)  # import raises ImportError
+    master = ZerodhaInstrumentMaster()
+    assert master.resolve_token(InstrumentId("RELIANCE", "NSE")) == 738561
 
 
 def test_search_instruments() -> None:

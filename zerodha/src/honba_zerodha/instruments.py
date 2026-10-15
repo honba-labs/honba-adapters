@@ -115,7 +115,7 @@ class ZerodhaInstrumentMaster:
                                     instrument_type="EQ",
                                 )
                             )
-        except (OSError, RuntimeError, ValueError, KeyError):
+        except (ImportError, OSError, RuntimeError, ValueError, KeyError):
             return
 
     def register(self, record: ZerodhaInstrumentRecord) -> None:
