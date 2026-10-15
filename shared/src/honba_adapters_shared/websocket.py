@@ -225,6 +225,14 @@ class ReconnectingWebSocketClient:
     def reconnect_attempts(self) -> int:
         return self._reconnect_attempts
 
+    def halt_reconnects(self) -> None:
+        """Stop retrying after the next disconnect (e.g. the server rejected the credentials)."""
+        self._reconnect = False
+
+    @property
+    def reconnects_enabled(self) -> bool:
+        return self._reconnect
+
     def add_subscriptions(self, *items: Any) -> None:
         """Register subscriptions to be retained across reconnections."""
         self._subscriptions.update(items)

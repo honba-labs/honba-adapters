@@ -67,13 +67,6 @@ def is_auth_rejection(exc: BaseException) -> bool:
     return status in (401, 403)
 
 
-class _HaltableWebSocket(ReconnectingWebSocketClient):
-    """Reconnecting client that can be told to stop retrying (e.g. the token was rejected)."""
-
-    def halt_reconnects(self) -> None:
-        self._reconnect = False
-
-
 def unpack_ltp_packet(
     data: bytes,
     id_resolver: Callable[[str, str], InstrumentId | None],
@@ -310,7 +303,7 @@ class DhanFeedClient:
         self._tick_listeners: list[Callable[[FeedTick], None]] = []
         self._subscribed: dict[InstrumentId, StreamMode] = {}
 
-        self._ws: Any = ws or _HaltableWebSocket(
+        self._ws: Any = ws or ReconnectingWebSocketClient(
             self._build_url(config),
             ping_interval=20.0,
             min_backoff=config.feed_min_backoff,
