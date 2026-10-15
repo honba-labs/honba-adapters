@@ -108,9 +108,30 @@ Credentials come from the environment, one prefix per adapter (`DHAN_`, `ZERODHA
   For simulation ask for it explicitly: `mode="paper"`, `XConfig.paper()` or
   `<PREFIX>MODE=paper` (paper mode needs no credentials and uses an in-memory transport).
 - Declared capabilities (exchanges, products, order types, time in force, features) are
-  tabulated in each adapter's README. `trailing_stop` is not supported by either broker.
+  tabulated in each adapter's README. `OrderType.TRAILING_STOP` is opt-in and no adapter
+  lists it today; see [Trailing stop support](#trailing-stop-support).
 - `HONBA_CACHE_DIR` moves the cache root; each adapter uses `$HONBA_CACHE_DIR/<broker>`
   (default `~/.cache/honba/<broker>`).
+
+## Trailing stop support
+
+`OrderType.TRAILING_STOP` (with `trail_amount` or `trail_percent`) is only declared where a
+broker documents a native, server-side trailing stop for a standalone order, with an
+unambiguous mapping of the trail distance. Reviewed against published docs (Oct 2026):
+
+| Adapter | Native feature | Source | Decision | Reason |
+|---|---|---|---|---|
+| dhan | Super Order `trailingJump` (absolute price jump) | https://dhanhq.co/docs/v2/super-order/ | excluded | Only inside a Super Order (entry + mandatory target + SL legs), not a standalone trailing stop; docs do not state the trail is server-side; no tick/min rules; absolute only (no percent) |
+| zerodha | Trailing SL on GTT, Kite Web only | https://support.zerodha.com/category/trading-and-markets/charts-and-orders/gtt/articles/trailing-stop-loss | excluded | Not exposed in Kite Connect API (announced as future) |
+| angelone | `trailingStopLoss` on ROBO (bracket) orders | https://smartapi.angelone.in/topic/4547/robo-trailing-stop-loss-not-being-honored | excluded | Bracket-only (needs squareoff + stoploss); developers report it is not honoured; units undocumented |
+| fyers | Smart Trail TSL on platform | https://support.fyers.in/portal/en/kb/articles/how-do-i-place-a-trailing-stop-loss-smart-trail-order-in-fyers | excluded | No trailing parameter in the published API v3 order parameters (https://api-connect-docs.fyers.in/docs/parameters) |
+| upstox | GTT v3 `trailing_gap` on stoploss rule | https://community.upstox.com/t/api-gtt-trailing-stop-loss-order-issue/13080 | excluded | GTT, not a regular order; units undocumented; users report it behaves as a plain stop loss; adapter has no GTT path |
+| kotak | Trailing SL on Bracket orders (platform) | https://www.kotakneo.com/support/how-can-i-set-a-trailing-stoploss/ | excluded | Bracket-only; no API parameter documented |
+| iifl | none found | - | excluded | No trailing stop documented in the public API |
+| motilal | none found | - | excluded | No trailing stop documented in the public API (advanced orders are strategy-layer) |
+
+Excluded adapters refuse `TRAILING_STOP` through pre-flight capability validation. Revisit
+when a broker documents a standalone server-side trailing order.
 
 ## Usage
 
