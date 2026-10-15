@@ -20,6 +20,7 @@ import urllib.request
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
+from honba.adapters.errors import AdapterError
 from honba.adapters.models import StreamMode
 from honba.domain.instrument import InstrumentId
 
@@ -114,6 +115,7 @@ class DhanBarDriver:
         self.backoff_seconds = backoff_seconds
         self.max_retries = max_retries
         self.backfill = backfill
+        self._gap_pending = False
         self._stop = asyncio.Event()
         self._watermark: dict[InstrumentId, int] = {}
         self._pending: list[tuple[int, ClosedBar]] = []
@@ -168,10 +170,22 @@ class DhanBarDriver:
         )
         return False
 
-    def _enqueue(self, bars: Sequence[ClosedBar]) -> None:
+    def _enqueue(self, bars: Sequence[ClosedBar], *, authoritative: bool = False) -> None:
+        """Queue bars above the watermark. Same (instrument, start) is kept once: REST history
+        (``authoritative``) replaces a live bar that may have been built from a partial feed."""
         for b in bars:
-            if b.start_ns > self._watermark.get(b.instrument_id, -1):
-                self._pending.append((b.start_ns, b))
+            if b.start_ns <= self._watermark.get(b.instrument_id, -1):
+                continue
+            same = [
+                p
+                for p in self._pending
+                if p[0] == b.start_ns and p[1].instrument_id == b.instrument_id
+            ]
+            if same:
+                if not authoritative:
+                    continue
+                self._pending.remove(same[0])
+            self._pending.append((b.start_ns, b))
         self._pending.sort(key=lambda p: (p[0], str(p[1].instrument_id)))
 
     async def _flush(self) -> int:
@@ -198,6 +212,21 @@ class DhanBarDriver:
 
     # ------------------------------------------------------------------ lifecycle
 
+    def note_reconnect(self) -> None:
+        """Feed reconnected after an outage: bars may be missing; backfill on the next cycle."""
+        self._gap_pending = True
+
+    async def _backfill_gap(self) -> None:
+        """Backfill after a reconnect. Retried next cycle on a non-fatal error; fatal propagates."""
+        try:
+            await self._do_backfill()
+        except AdapterError as exc:
+            if exc.fatal:
+                raise
+            logger.warning("gap backfill failed (%s); will retry", exc)
+            return
+        self._gap_pending = False
+
     async def _do_backfill(self) -> None:
         """Post today's already-closed bars from REST history (watermark dedupes vs live)."""
         now = self._clock()
@@ -209,7 +238,8 @@ class DhanBarDriver:
                 inst, timeframe=self.interval, start=today, end=now
             )
             self._enqueue(
-                [ClosedBar(inst, r.ts, r.open, r.high, r.low, r.close, r.volume) for r in rows]
+                [ClosedBar(inst, r.ts, r.open, r.high, r.low, r.close, r.volume) for r in rows],
+                authoritative=True,
             )
         await self._flush()
 
@@ -222,12 +252,16 @@ class DhanBarDriver:
                 raise RuntimeError("Dhan live feed is unavailable (paper mode or no feed)")
             feed.add_tick_listener(self.aggregator.on_tick)
             if self.backfill:
+                feed.add_reconnect_listener(self.note_reconnect)
+            if self.backfill:
                 await self._do_backfill()
             await self._adapter.subscribe(
                 tuple(self.targets), mode=StreamMode.QUOTE, callback=lambda _e: None
             )
             while not self._stop.is_set():
                 feed.raise_if_failed()  # rejected token / reconnect budget exhausted: exit
+                if self._gap_pending:
+                    await self._backfill_gap()
                 await self.step()
                 if self._stop.is_set():
                     break

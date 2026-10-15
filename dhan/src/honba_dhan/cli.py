@@ -34,7 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--interval", default="1m", help="1m (default), 5m, 15m, 25m, 60m")
     live.add_argument("--server", default="http://127.0.0.1:8080", help="Honba server base URL")
     live.add_argument("--token-env", default="HONBA_TOKEN", help="env var holding the Honba token")
-    live.add_argument("--backfill", action="store_true", help="also post today's closed bars first")
+    live.add_argument(
+        "--backfill",
+        action="store_true",
+        help="post today's closed bars first and again after every feed reconnect",
+    )
     live.add_argument(
         "--max-reconnects",
         type=int,

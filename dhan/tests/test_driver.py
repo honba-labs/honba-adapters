@@ -289,3 +289,90 @@ class TestCli:
         assert main(["live", "--symbols", "RELIANCE"]) == 2
         err = capsys.readouterr().err
         assert "DHAN_CLIENT_ID" in err and "tok-xyz" not in err
+
+
+class TestReconnectBackfill:
+    def _make(self, clock: Clock, server: Server, handler: Any):
+        ws = FakeWS()
+        adapter = DhanAdapter(
+            DhanConfig.live(client_id="c", access_token="t"),
+            http_transport=httpx.MockTransport(handler),
+            feed_factory=lambda cfg, inst: DhanFeedClient(cfg, inst, ws=ws),
+        )
+        adapter._clock = clock  # type: ignore[assignment]
+
+        async def sleep(_s: float) -> None: ...
+
+        drv = DhanBarDriver(
+            adapter,
+            ["RELIANCE"],
+            "1m",
+            "http://honba:8080",
+            "tok",
+            http_post=server,
+            clock=clock,
+            sleep=sleep,
+            backfill=True,
+        )
+        return drv, adapter
+
+    @staticmethod
+    def _history(n: int) -> dict[str, Any]:
+        return {
+            "open": [100.0 + i for i in range(n)],
+            "high": [101.0 + i for i in range(n)],
+            "low": [99.0 + i for i in range(n)],
+            "close": [100.5 + i for i in range(n)],
+            "volume": [10.0] * n,
+            "timestamp": [float(epoch(i)) for i in range(n)],
+        }
+
+    async def test_reconnect_triggers_gap_backfill_once(self) -> None:
+        server, clock = Server(), Clock()
+        drv, adapter = self._make(
+            clock, server, lambda r: httpx.Response(200, json=self._history(5))
+        )
+        clock.at(5.5)
+        await adapter.connect()
+        feed = adapter.feed
+        assert feed is not None
+        feed.add_reconnect_listener(drv.note_reconnect)
+        await feed._on_connected()  # first connect: not a reconnect
+        assert drv._gap_pending is False
+        await feed._on_connected()  # second connect = reconnect after an outage
+        assert drv._gap_pending is True
+        await drv._backfill_gap()
+        assert drv._gap_pending is False
+        starts = [int(b["ts_event"]["unix_nanos"]) for b in server.bars]
+        assert starts == [epoch(i) * 10**9 for i in range(5)]  # ascending, closed only
+        await drv._backfill_gap()  # idempotent: watermark prevents reposting
+        assert len(server.bars) == 5
+
+    async def test_failed_gap_backfill_is_retried(self) -> None:
+        server, clock = Server(), Clock()
+        results = [httpx.Response(500, json={"message": "boom"})]
+
+        def handler(r: httpx.Request) -> httpx.Response:
+            return results.pop(0) if results else httpx.Response(200, json=self._history(3))
+
+        drv, adapter = self._make(clock, server, handler)
+        clock.at(3.5)
+        await adapter.connect()
+        drv.note_reconnect()
+        await drv._backfill_gap()
+        assert drv._gap_pending is True and not server.bars
+        await drv._backfill_gap()
+        assert drv._gap_pending is False and len(server.bars) == 3
+
+    async def test_history_replaces_partial_live_bar_in_queue(self) -> None:
+        from honba_dhan.aggregator import ClosedBar
+
+        server, clock = Server(), Clock()
+        drv, *_ = make(server, clock)
+        inst = InstrumentId("RELIANCE", "NSE")
+        t = epoch(1) * 10**9
+        drv._enqueue([ClosedBar(inst, t, 1, 1, 1, 1, 5)])  # partial live bar
+        drv._enqueue([ClosedBar(inst, t, 1, 9, 0.5, 2, 50)], authoritative=True)
+        drv._enqueue([ClosedBar(inst, t, 7, 7, 7, 7, 7)])  # later live duplicate ignored
+        await drv._flush()
+        assert [(b["high"], b["volume"]) for b in server.bars] == [(9.0, 50.0)]
