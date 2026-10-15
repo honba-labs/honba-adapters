@@ -18,12 +18,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+from honba.adapters.errors import AdapterError, AdapterFatalError
 from honba.adapters.models import DepthLevel, MarketDepth, StreamCallback, StreamMode
 from honba.domain.instrument import InstrumentId
 from honba.domain.tick import AggressorSide, QuoteTick, TradeTick
+from honba_adapters_shared.errors import AuthenticationError
 from honba_adapters_shared.websocket import ReconnectingWebSocketClient
 
 from honba_dhan.constants import (
+    DHAN_FEED_AUTH_DISCONNECT_CODES,
     DHAN_FEED_CODE_DEPTH_20,
     DHAN_FEED_CODE_LTP,
     DHAN_FEED_CODE_QUOTE,
@@ -44,11 +47,31 @@ if TYPE_CHECKING:
 __all__ = [
     "DhanFeedClient",
     "FeedTick",
+    "is_auth_rejection",
     "unpack_depth_20_packet",
     "unpack_ltp_packet",
     "unpack_quote_packet",
     "unpack_v2_packet",
 ]
+
+
+def is_auth_rejection(exc: BaseException) -> bool:
+    """True if ``exc`` is a websocket upgrade rejected with HTTP 401/403 (bad/expired token).
+
+    ``websockets`` >= 14 raises ``InvalidStatus`` (``.response.status_code``); older versions
+    raise ``InvalidStatusCode`` (``.status_code``). Both are handled without importing either.
+    """
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status is None:
+        status = getattr(exc, "status_code", None)
+    return status in (401, 403)
+
+
+class _HaltableWebSocket(ReconnectingWebSocketClient):
+    """Reconnecting client that can be told to stop retrying (e.g. the token was rejected)."""
+
+    def halt_reconnects(self) -> None:
+        self._reconnect = False
 
 
 def unpack_ltp_packet(
@@ -269,8 +292,13 @@ class DhanFeedClient:
         instruments: DhanInstrumentMaster,
         *,
         ws: Any | None = None,
+        max_reconnects: int | None = None,
     ) -> None:
         self._config = config
+        self._failure: AdapterError | None = None
+        self._max_reconnects = (
+            max_reconnects if max_reconnects is not None else config.feed_max_reconnects
+        )
         self._instruments = instruments
         # (instruments, mode, callback) per subscription; unfiltered add_callback uses None.
         self._listeners: list[
@@ -279,12 +307,19 @@ class DhanFeedClient:
         self._tick_listeners: list[Callable[[FeedTick], None]] = []
         self._subscribed: dict[InstrumentId, StreamMode] = {}
 
-        self._ws: Any = ws or ReconnectingWebSocketClient(
+        self._ws: Any = ws or _HaltableWebSocket(
             self._build_url(config),
             ping_interval=20.0,
+            min_backoff=config.feed_min_backoff,
+            max_backoff=config.feed_max_backoff,
+            max_reconnect_attempts=self._max_reconnects,
             on_connected=self._on_connected,
             on_message=self._on_message,
+            on_error=self._on_error,
         )
+        self._connected_once = False
+        self._consecutive_errors = 0
+        self._reconnect_listeners: list[Callable[[], None]] = []
 
     @staticmethod
     def _build_url(config: DhanConfig) -> str:
@@ -308,6 +343,44 @@ class DhanFeedClient:
     @property
     def is_connected(self) -> bool:
         return bool(self._ws.is_connected)
+
+    @property
+    def failure(self) -> AdapterError | None:
+        """Terminal feed failure (rejected token, or reconnect budget exhausted), else None."""
+        return self._failure
+
+    def raise_if_failed(self) -> None:
+        err = self.failure
+        if err is not None:
+            raise err
+
+    def add_reconnect_listener(self, listener: Callable[[], None]) -> None:
+        """Called after every RE-connect (not the first connect): used to backfill the gap."""
+        self._reconnect_listeners.append(listener)
+
+    def _fail_auth(self) -> None:
+        from honba_dhan.http import DH902_MESSAGE
+
+        if self._failure is None:
+            self._failure = AuthenticationError(DH902_MESSAGE)
+        halt = getattr(self._ws, "halt_reconnects", None)
+        if halt is not None:
+            halt()
+
+    async def _on_error(self, exc: Exception) -> None:
+        if is_auth_rejection(exc):
+            logger.error("Dhan feed upgrade rejected (auth); not reconnecting")
+            self._fail_auth()
+            return
+        self._consecutive_errors += 1
+        logger.warning("Dhan feed error: %s", type(exc).__name__)
+        limit = self._max_reconnects
+        # The shared client gives up once attempts > max; mirror that so callers see why.
+        if limit is not None and self._consecutive_errors > limit and self._failure is None:
+            self._failure = AdapterFatalError(
+                f"Dhan feed gave up after {limit} consecutive reconnect attempts; "
+                "check connectivity or raise feed_max_reconnects"
+            )
 
     async def start(self) -> None:
         await self._ws.start()
@@ -363,6 +436,12 @@ class DhanFeedClient:
 
     async def _on_connected(self) -> None:
         """Restore subscriptions after (re)connect; v2 needs no auth message."""
+        self._consecutive_errors = 0
+        if self._connected_once:
+            for listener in list(self._reconnect_listeners):
+                with contextlib.suppress(Exception):
+                    listener()
+        self._connected_once = True
         by_mode: dict[StreamMode, list[InstrumentId]] = {}
         for inst, mode in self._subscribed.items():
             by_mode.setdefault(mode, []).append(inst)
@@ -407,7 +486,10 @@ class DhanFeedClient:
 
         code = message[0]
         if code == DHAN_FEED_V2_DISCONNECT:
-            logger.warning("Dhan feed sent a disconnect notice")
+            reason = struct.unpack("<h", message[8:10])[0] if len(message) >= 10 else None
+            logger.warning("Dhan feed sent a disconnect notice (code %s)", reason)
+            if reason in DHAN_FEED_AUTH_DISCONNECT_CODES:
+                self._fail_auth()
             return
         if code in (DHAN_FEED_V2_TICKER, DHAN_FEED_V2_QUOTE, DHAN_FEED_V2_FULL):
             decoded = unpack_v2_packet(message, self._instruments.resolve_from_dhan)

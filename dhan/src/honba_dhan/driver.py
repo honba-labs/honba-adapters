@@ -227,6 +227,7 @@ class DhanBarDriver:
                 tuple(self.targets), mode=StreamMode.QUOTE, callback=lambda _e: None
             )
             while not self._stop.is_set():
+                feed.raise_if_failed()  # rejected token / reconnect budget exhausted: exit
                 await self.step()
                 if self._stop.is_set():
                     break

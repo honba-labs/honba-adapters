@@ -28,6 +28,10 @@ class DhanConfig:
     orders_per_second: int = 10
     orders_burst: int = 25
     data_per_second: int = 5
+    # Live feed: consecutive reconnect attempts before giving up (None = forever) and backoff.
+    feed_max_reconnects: int | None = 10
+    feed_min_backoff: float = 1.0
+    feed_max_backoff: float = 30.0
     cache_dir: Path = field(default_factory=lambda: cache_dir("dhan"))
 
     def __post_init__(self) -> None:

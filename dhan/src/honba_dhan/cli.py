@@ -35,6 +35,12 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--server", default="http://127.0.0.1:8080", help="Honba server base URL")
     live.add_argument("--token-env", default="HONBA_TOKEN", help="env var holding the Honba token")
     live.add_argument("--backfill", action="store_true", help="also post today's closed bars first")
+    live.add_argument(
+        "--max-reconnects",
+        type=int,
+        default=None,
+        help="give up after N consecutive feed reconnect attempts (default 10)",
+    )
     live.add_argument("-v", "--verbose", action="store_true")
     return p
 
@@ -56,7 +62,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     from honba_dhan.driver import DhanBarDriver, IngestFatalError
 
     try:
-        adapter = DhanAdapter()  # reads DHAN_* from the environment, or fails loudly
+        extra = {} if args.max_reconnects is None else {"feed_max_reconnects": args.max_reconnects}
+        adapter = DhanAdapter(**extra)  # reads DHAN_* from the environment, or fails loudly
         driver = DhanBarDriver(
             adapter,
             [s for s in args.symbols.split(",") if s.strip()],

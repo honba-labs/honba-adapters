@@ -138,3 +138,9 @@ SEGMENT_TO_EXCHANGE: Final[dict[str, tuple[str, str]]] = {
     "BSE_FNO": ("BSE", "FNO"),
     "MCX_COMM": ("MCX", "COMMODITY"),
 }
+
+# Disconnect reason codes (int16 LE after the 8-byte header of a code-50 packet) that mean the
+# token/plan is the problem, so reconnecting cannot help. From Dhan's Data API error list
+# (UNVERIFIED against the live feed): 806 Data APIs not subscribed, 807 access token expired,
+# 808 authentication failed, 809 access token invalid, 810 client id invalid.
+DHAN_FEED_AUTH_DISCONNECT_CODES: Final[frozenset[int]] = frozenset({806, 807, 808, 809, 810})
