@@ -45,3 +45,39 @@ class TestDhanInstruments:
         test_bse_id = InstrumentId("TESTBSE", "BSE")
         resolved_bse = master.resolve_to_dhan(test_bse_id)
         assert resolved_bse == ("88888", "BSE_EQ")
+
+
+_SCRIP_MASTER = """SEM_EXM_EXCH_ID,SEM_SEGMENT,SEM_SMST_SECURITY_ID,SEM_INSTRUMENT_NAME,SEM_TRADING_SYMBOL,SEM_LOT_UNITS,SEM_TICK_SIZE,SEM_SERIES
+NSE,E,2885,EQUITY,ACMEIND,1,0.05,EQ
+NSE,D,51001,FUTSTK,ACMEIND,500,0.05,XX
+NSE,D,51002,OPTSTK,ACMEIND,500,0.05,XX
+NSE,E,3001,EQUITY,ACMEBE,1,0.05,BE
+NSE,E,3002,ETF,ACMEETF,1,0.05,EQ
+NSE,I,13,INDEX,NIFTY,1,0.05,
+BSE,E,500999,EQUITY,ACMEIND,1,0.01,A
+BSE,D,60001,FUTIDX,SENSEX,10,0.05,XX
+MCX,M,70001,FUTCOM,GOLD,100,1,XX
+"""
+
+
+class TestScripMasterFilter:
+    def test_only_cash_equity_rows_are_loaded(self) -> None:
+        m = DhanInstrumentMaster()
+        assert m.load_csv_data(_SCRIP_MASTER) == 2
+        assert m.resolve_to_dhan(InstrumentId("ACMEIND", "NSE")) == ("2885", "NSE_EQ")
+        assert m.resolve_to_dhan(InstrumentId("ACMEIND", "BSE")) == ("500999", "BSE_EQ")
+        for sym in ("ACMEBE", "ACMEETF", "NIFTY", "GOLD", "SENSEX"):
+            assert m.resolve_to_dhan(InstrumentId(sym, "NSE")) is None
+        assert m.resolve_from_dhan("51001", "NSE_EQ") == InstrumentId("51001", "NSE")
+
+    def test_fno_row_does_not_overwrite_equity_symbol(self) -> None:
+        m = DhanInstrumentMaster()
+        m.load_csv_data(_SCRIP_MASTER)
+        info = m.get_instrument(InstrumentId("ACMEIND", "NSE"))
+        assert info is not None and info.lot_size == 1.0
+
+    def test_explicit_override_still_wins(self) -> None:
+        m = DhanInstrumentMaster()
+        m.load_csv_data(_SCRIP_MASTER)
+        m.add_instrument(security_id="777", exchange_segment="NSE_EQ", symbol="ACMEIND")
+        assert m.resolve_to_dhan(InstrumentId("ACMEIND", "NSE")) == ("777", "NSE_EQ")

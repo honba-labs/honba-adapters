@@ -146,7 +146,15 @@ class DhanInstrumentMaster:
         return matches
 
     def load_csv_data(self, csv_text_or_file: str | io.TextIOBase) -> int:
-        """Load instruments from Dhan api-scrip-master CSV."""
+        """Load cash-equity rows from Dhan's api-scrip-master CSV; returns rows loaded.
+
+        Only NSE/BSE cash equities are loaded: when the scrip-master columns are present,
+        ``SEM_INSTRUMENT_NAME`` must be ``EQUITY``, ``SEM_SEGMENT`` (if present) ``E`` and, for
+        NSE, ``SEM_SERIES`` must be ``EQ`` (BSE uses group letters A/B/T/..., so any series is
+        accepted there). F&O, currency, commodity and index rows are skipped so they cannot
+        collide with equity symbols. Files without those columns (older/compact exports) are
+        loaded as before. Use ``add_instrument`` / ``SYMBOL=ID`` for explicit overrides.
+        """
         if isinstance(csv_text_or_file, str):
             f = io.StringIO(csv_text_or_file)
         else:
@@ -163,25 +171,35 @@ class DhanInstrumentMaster:
             if not sec_id or not symbol:
                 continue
 
-            lot_size = float(row.get("SEM_LOT_UNITS") or 1.0)
-            tick_size = float(row.get("SEM_TICK_SIZE") or 0.05)
+            seg_upper = (seg or "NSE").strip().upper()
+            if any(x in seg_upper for x in ("FNO", "COMM", "CUR", "MCX", "IDX")):
+                continue
+            if "BSE" in seg_upper:
+                exchange = "BSE"
+            elif "NSE" in seg_upper:
+                exchange = "NSE"
+            else:
+                continue
 
-            # Map segment name
-            seg_code = "NSE_EQ"
-            if seg:
-                seg_upper = seg.upper()
-                if "NSE" in seg_upper and "FNO" in seg_upper:
-                    seg_code = "NSE_FNO"
-                elif "BSE" in seg_upper and "FNO" in seg_upper:
-                    seg_code = "BSE_FNO"
-                elif "BSE" in seg_upper:
-                    seg_code = "BSE_EQ"
-                elif "MCX" in seg_upper:
-                    seg_code = "MCX_COMM"
+            instrument_name = (row.get("SEM_INSTRUMENT_NAME") or "").strip().upper()
+            if instrument_name and instrument_name != "EQUITY":
+                continue
+            segment_code = (row.get("SEM_SEGMENT") or "").strip().upper()
+            if segment_code and segment_code != "E":
+                continue
+            series = (row.get("SEM_SERIES") or "").strip().upper()
+            if exchange == "NSE" and series and series != "EQ":
+                continue
+
+            try:
+                lot_size = float(row.get("SEM_LOT_UNITS") or 1.0)
+                tick_size = float(row.get("SEM_TICK_SIZE") or 0.05)
+            except ValueError:
+                continue
 
             self.add_instrument(
                 security_id=sec_id,
-                exchange_segment=seg_code,
+                exchange_segment="BSE_EQ" if exchange == "BSE" else "NSE_EQ",
                 symbol=symbol,
                 lot_size=lot_size,
                 tick_size=tick_size,
