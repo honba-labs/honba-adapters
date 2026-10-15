@@ -141,6 +141,7 @@ SEGMENT_TO_EXCHANGE: Final[dict[str, tuple[str, str]]] = {
 
 # Disconnect reason codes (int16 LE after the 8-byte header of a code-50 packet) that mean the
 # token/plan is the problem, so reconnecting cannot help. From Dhan's Data API error list
-# (UNVERIFIED against the live feed): 806 Data APIs not subscribed, 807 access token expired,
+# (https://dhanhq.co/docs/v2/annexure/ and the dhanhq client; not seen on a live feed): 805 too many
+# connections (retryable, deliberately excluded), 806 Data APIs not subscribed, 807 access token expired,
 # 808 authentication failed, 809 access token invalid, 810 client id invalid.
 DHAN_FEED_AUTH_DISCONNECT_CODES: Final[frozenset[int]] = frozenset({806, 807, 808, 809, 810})

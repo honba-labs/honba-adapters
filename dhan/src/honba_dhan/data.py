@@ -36,9 +36,8 @@ if TYPE_CHECKING:
 __all__ = ["DhanMarketDataMixin"]
 
 
-# Maximum span of one /charts/intraday request, in days. UNVERIFIED: believed to be ~90 days from
-# Dhan's docs but never confirmed against the live API (the account has no Data API plan). If
-# Dhan rejects wide ranges, lower this single constant.
+# Maximum span of one /charts/intraday request, in days. Source: Dhan docs
+# (https://dhanhq.co/docs/v2/historical-data/): "only 90 days of data can be polled at once".
 INTRADAY_MAX_DAYS = 90
 
 
@@ -94,7 +93,7 @@ class DhanMarketDataMixin:
             "instrument": "EQUITY",
         }
         try:
-            resp = await self._http.post("/marketfeed/quote", pool="data", json_body=payload)
+            resp = await self._http.post("/marketfeed/quote", pool="quote", json_body=payload)
         except AdapterError as e:
             if e.fatal:
                 raise
@@ -119,7 +118,7 @@ class DhanMarketDataMixin:
             "instrument": "EQUITY",
         }
         try:
-            resp = await self._http.post("/marketfeed/quote", pool="data", json_body=payload)
+            resp = await self._http.post("/marketfeed/quote", pool="quote", json_body=payload)
         except AdapterError as e:
             if e.fatal:
                 raise

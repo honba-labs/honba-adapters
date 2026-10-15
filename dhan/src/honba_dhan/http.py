@@ -88,6 +88,8 @@ class DhanHttpClient:
                     requests=config.data_per_second,
                     per_seconds=1.0,
                 ),
+                # Dhan's Quote APIs (/marketfeed/*) are limited to 1 request/second.
+                "quote": RateLimit(requests=config.quote_per_second, per_seconds=1.0),
             }
         )
 

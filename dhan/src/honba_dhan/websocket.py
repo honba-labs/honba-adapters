@@ -197,7 +197,10 @@ _V2_FULL_HEAD = struct.Struct("<fHIfIIIIIIffff")
 _V2_DEPTH_LEVEL = struct.Struct("<IIHHff")
 _V2_MIN_LEN = {DHAN_FEED_V2_TICKER: 16, DHAN_FEED_V2_QUOTE: 50, DHAN_FEED_V2_FULL: 162}
 
-# Assumption (UNVERIFIED against a live session): LTT is standard UNIX epoch seconds.
+# LTT offset. Docs (live-market-feed) only say "EPOCH" with no timezone. The official dhanhq
+# client formats LTT with datetime.fromtimestamp(ltt, UTC) as HH:MM:SS, which implies exchange
+# wall-clock (IST) encoded as if UTC, i.e. a +19800 s shift; but that is indirect and no doc says
+# so. Kept at 0 (plain epoch) until confirmed against a live session. See README.
 LTT_EPOCH_OFFSET_S = 0
 
 

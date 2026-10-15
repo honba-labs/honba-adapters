@@ -28,6 +28,7 @@ class DhanConfig:
     orders_per_second: int = 10
     orders_burst: int = 25
     data_per_second: int = 5
+    quote_per_second: int = 1
     # Live feed: consecutive reconnect attempts before giving up (None = forever) and backoff.
     feed_max_reconnects: int | None = 10
     feed_min_backoff: float = 1.0
