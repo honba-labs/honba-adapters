@@ -18,13 +18,13 @@ single recorded read. The recorded routes cover the read-only account and market
 from __future__ import annotations
 
 import importlib
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
-import tomllib
 from honba.adapters import Adapter, resolve_adapter
 from honba.adapters.contract import verify_adapter_contract
 from honba_adapters_shared import recorded_transport
