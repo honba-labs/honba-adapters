@@ -1,0 +1,26 @@
+{
+  "status": true,
+  "message": "SUCCESS",
+  "errorcode": "",
+  "data": {
+    "tradingsymbol": "RELIANCE-EQ",
+    "symboltoken": "2885",
+    "exchange": "NSE",
+    "ltp": "2450.00",
+    "open": "2400.00",
+    "high": "2460.00",
+    "low": "2390.00",
+    "close": "2410.00",
+    "exchange_timestamp": "2023-11-15T09:15:00+05:30",
+    "depth": {
+      "buy": [
+        {"price": "2449.00", "quantity": "100", "orders": 1},
+        {"price": "2448.50", "quantity": "200", "orders": 2}
+      ],
+      "sell": [
+        {"price": "2451.00", "quantity": "150", "orders": 1},
+        {"price": "2452.00", "quantity": "300", "orders": 3}
+      ]
+    }
+  }
+}

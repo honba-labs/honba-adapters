@@ -1,0 +1,15 @@
+# Contract-suite wiring for angelone, read by tests/contract/test_contract_suite.py.
+adapter = "honba_adapters.angelone:AngelOneAdapter"
+config = "honba_adapters.angelone:AngelOneConfig"
+fallback = "honba_adapters.angelone:make_angelone_mock_handler"
+
+[routes]
+"/rest/auth/angelbroking/user/v1/loginByPassword" = "login.json"
+"/rest/secure/angelbroking/user/v1/getProfile" = "profile.json"
+"/rest/secure/angelbroking/user/v1/getRMS" = "funds.json"
+"/rest/secure/angelbroking/order/v1/getPosition" = "positions.json"
+"/rest/secure/angelbroking/portfolio/v1/getHolding" = "holdings.json"
+"/rest/secure/angelbroking/order/v1/getTradeBook" = "trades.json"
+"/rest/secure/angelbroking/market/v1/quote" = "quote.json"
+"/rest/secure/angelbroking/historical/v1/getCandleData" = "historical.json"
+"/files/OpenAPIScripMaster.json" = "instruments.json"

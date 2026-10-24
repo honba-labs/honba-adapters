@@ -1,0 +1,16 @@
+{
+  "status": true,
+  "message": "SUCCESS",
+  "errorcode": "",
+  "data": [
+    {
+      "exchange": "NSE",
+      "symbolname": "RELIANCE",
+      "symboltoken": "2885",
+      "producttype": "DELIVERY",
+      "netqty": "0",
+      "netprice": "2450.00",
+      "pnl": "0.00"
+    }
+  ]
+}

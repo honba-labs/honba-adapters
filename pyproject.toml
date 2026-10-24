@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "honba-adapters"
+version = "0.1.0"
+description = "Production broker adapters and SDK for Honba algorithmic trading platform"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0" }
+authors = [{ name = "honba-labs" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: GNU Affero General Public License v3 (AGPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "honba>=0.1.0",
+    "httpx>=0.27",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dhan = []
+zerodha = []
+angelone = []
+upstox = []
+fyers = []
+kotak = []
+all = [
+    "honba-adapters[dhan,zerodha,angelone,upstox,fyers,kotak]",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "hypothesis>=6.100",
+]
+
+[project.scripts]
+honba-dhan = "honba_adapters.dhan.cli:main"
+honba-zerodha = "honba_adapters.zerodha.cli:main"
+
+[project.entry-points."honba.adapters"]
+dhan = "honba_adapters.dhan:DhanAdapter"
+zerodha = "honba_adapters.zerodha:ZerodhaAdapter"
+angelone = "honba_adapters.angelone:AngelOneAdapter"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["honba_adapters*", "honba_dhan*", "honba_zerodha*", "honba_angelone*", "honba_adapters_shared*"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = ["--import-mode=importlib"]
+markers = [
+    "live: hits the real broker API (read-only); needs credentials",
+]

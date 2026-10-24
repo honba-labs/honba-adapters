@@ -1,0 +1,17 @@
+{
+  "status": true,
+  "message": "SUCCESS",
+  "errorcode": "",
+  "data": [
+    {
+      "tradeid": "TRD_1001",
+      "orderid": "201130000001001",
+      "tradingsymbol": "RELIANCE-EQ",
+      "exchange": "NSE",
+      "transactiontype": "BUY",
+      "tradeprice": "2450.00",
+      "tradequantity": "1",
+      "tradetime": "2023-11-15 09:15:00"
+    }
+  ]
+}

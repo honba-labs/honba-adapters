@@ -147,9 +147,7 @@ from honba.domain.instrument import InstrumentId
 async def main() -> None:
     print(available_adapters())  # ['dhan', 'zerodha', ...]
 
-    adapter = resolve_adapter(
-        "zerodha", mode="paper"
-    )  # or mode="live" with credentials
+    adapter = resolve_adapter("zerodha", mode="paper")  # or mode="live" with credentials
     await adapter.connect()
     try:
         quote = await adapter.quote(InstrumentId("RELIANCE", "NSE"))

@@ -1,0 +1,135 @@
+"""Shared infrastructure for the broker adapters in this repository.
+
+``honba-adapters-shared`` is what every package here has in common:
+- Contract suite an adapter must pass (:func:`assert_adapter_contract`)
+- Boundary check that keeps broker wire types inside their adapter (:func:`find_boundary_violations`)
+- Test fixture loader and recorded-response transport (:func:`load_fixture`, :func:`fixtures_dir`, :func:`recorded_transport`)
+- One-dict wire mappings and capability coverage guard (:class:`WireMap`, :func:`assert_covers`)
+- Token bucket rate limiter (:class:`RateLimiter`, :class:`TokenBucket`, :func:`rate_limited`)
+- RFC 6238 TOTP generator and token management (:class:`TOTP`, :class:`TokenManager`, :class:`TokenRecord`)
+- Reconnecting WebSocket transport and sequence tracker (:class:`ReconnectingWebSocketClient`, :class:`SequenceTracker`)
+"""
+
+from honba.adapters import (
+    Adapter,
+    AdapterCapabilities,
+    AdapterError,
+    AdapterNotFound,
+    Capability,
+    CapabilityError,
+    ExecutionAdapter,
+    MarketDataAdapter,
+    SessionError,
+    available_adapters,
+    capability_for_method,
+    default_registry,
+    register_adapter,
+    resolve_adapter,
+)
+from honba.adapters.boundary import (
+    BoundaryViolation,
+    find_boundary_violations,
+    format_violations,
+)
+from honba.adapters.contract import ContractViolation, verify_adapter_contract
+from honba.adapters.errors import AdapterFatalError, SessionExpired
+from honba.adapters.registry import ENTRY_POINT_GROUP, AdapterRegistry
+
+from honba_adapters.common.auth import (
+    TOTP,
+    FileTokenStore,
+    MemoryTokenStore,
+    TokenManager,
+    TokenRecord,
+    TokenStore,
+    generate_totp,
+    verify_totp,
+)
+from honba_adapters.common.contract import assert_adapter_contract
+from honba_adapters.common.errors import (
+    AuthenticationError,
+    RateLimitExceeded,
+    SequenceGapError,
+    TokenExpiredError,
+    WebSocketError,
+)
+from honba_adapters.common.fixtures import (
+    RecordedWebSocketClient,
+    fixtures_dir,
+    load_fixture,
+    recorded_transport,
+)
+from honba_adapters.common.maps import (
+    AmbiguousMappingError,
+    MappingCoverageError,
+    WireMap,
+    assert_covers,
+)
+from honba_adapters.common.rate_limit import (
+    RateLimit,
+    RateLimiter,
+    TokenBucket,
+    rate_limited,
+)
+from honba_adapters.common.websocket import (
+    ReconnectingWebSocketClient,
+    SequenceCheckResult,
+    SequenceTracker,
+    WebSocketState,
+)
+
+__all__ = [
+    "ENTRY_POINT_GROUP",
+    "TOTP",
+    "Adapter",
+    "AdapterCapabilities",
+    "AdapterError",
+    "AdapterFatalError",
+    "AdapterNotFound",
+    "AdapterRegistry",
+    "AmbiguousMappingError",
+    "AuthenticationError",
+    "BoundaryViolation",
+    "Capability",
+    "CapabilityError",
+    "ContractViolation",
+    "ExecutionAdapter",
+    "FileTokenStore",
+    "MappingCoverageError",
+    "MarketDataAdapter",
+    "MemoryTokenStore",
+    "RateLimit",
+    "RateLimitExceeded",
+    "RateLimiter",
+    "ReconnectingWebSocketClient",
+    "RecordedWebSocketClient",
+    "SequenceCheckResult",
+    "SequenceGapError",
+    "SequenceTracker",
+    "SessionError",
+    "SessionExpired",
+    "TokenBucket",
+    "TokenExpiredError",
+    "TokenManager",
+    "TokenRecord",
+    "TokenStore",
+    "WebSocketError",
+    "WebSocketState",
+    "WireMap",
+    "assert_adapter_contract",
+    "assert_covers",
+    "available_adapters",
+    "capability_for_method",
+    "default_registry",
+    "find_boundary_violations",
+    "fixtures_dir",
+    "format_violations",
+    "generate_totp",
+    "load_fixture",
+    "rate_limited",
+    "recorded_transport",
+    "register_adapter",
+    "resolve_adapter",
+    "verify_adapter_contract",
+    "verify_totp",
+]

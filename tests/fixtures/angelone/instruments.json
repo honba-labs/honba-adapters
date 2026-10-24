@@ -1,0 +1,57 @@
+[
+  {
+    "token": "2885",
+    "symbol": "RELIANCE-EQ",
+    "name": "RELIANCE INDUSTRIES",
+    "expiry": "",
+    "strike": "-1.000000",
+    "lotsize": "1",
+    "instrumenttype": "",
+    "exch_seg": "NSE",
+    "tick_size": "5.000000"
+  },
+  {
+    "token": "1594",
+    "symbol": "INFY-EQ",
+    "name": "INFOSYS LIMITED",
+    "expiry": "",
+    "strike": "-1.000000",
+    "lotsize": "1",
+    "instrumenttype": "",
+    "exch_seg": "NSE",
+    "tick_size": "5.000000"
+  },
+  {
+    "token": "3045",
+    "symbol": "SBIN-EQ",
+    "name": "STATE BANK OF INDIA",
+    "expiry": "",
+    "strike": "-1.000000",
+    "lotsize": "1",
+    "instrumenttype": "",
+    "exch_seg": "NSE",
+    "tick_size": "5.000000"
+  },
+  {
+    "token": "4300",
+    "symbol": "GOLD",
+    "name": "GOLD",
+    "expiry": "",
+    "strike": "-1.000000",
+    "lotsize": "1",
+    "instrumenttype": "",
+    "exch_seg": "MCX",
+    "tick_size": "100.000000"
+  },
+  {
+    "token": "99926000",
+    "symbol": "NIFTY 50",
+    "name": "NIFTY 50",
+    "expiry": "",
+    "strike": "-1.000000",
+    "lotsize": "1",
+    "instrumenttype": "",
+    "exch_seg": "NSE",
+    "tick_size": "5.000000"
+  }
+]

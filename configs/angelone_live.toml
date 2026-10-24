@@ -1,0 +1,12 @@
+[adapter]
+broker = "angelone"
+mode = "live"
+api_key = "${ANGELONE_API_KEY}"
+client_code = "${ANGELONE_CLIENT_CODE}"
+password = "${ANGELONE_PASSWORD}"
+totp_key = "${ANGELONE_TOTP_KEY}"
+
+[rate_limits]
+order_rate_limit = 10.0
+data_rate_limit = 10.0
+history_rate_limit = 3.0

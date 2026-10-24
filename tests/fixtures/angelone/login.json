@@ -1,0 +1,10 @@
+{
+  "status": true,
+  "message": "SUCCESS",
+  "errorcode": "",
+  "data": {
+    "jwtToken": "mock_recorded_jwt_token",
+    "refreshToken": "mock_recorded_refresh_token",
+    "feedToken": "mock_recorded_feed_token"
+  }
+}

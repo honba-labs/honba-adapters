@@ -1,0 +1,12 @@
+{
+  "status": true,
+  "message": "SUCCESS",
+  "errorcode": "",
+  "data": {
+    "equityamount": "1234567.00",
+    "equitylimit": "1234567.00",
+    "commodityamount": "0.00",
+    "availablecash": "1234567.00",
+    "collateral": "0.00"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "data": {
+    "tradingsymbol": "RELIANCE-EQ",
+    "last_price": 2450.55,
+    "last_quantity": 120,
+    "bid": 2450.45,
+    "ask": 2450.55,
+    "total_buy_quantity": 8400,
+    "total_sell_quantity": 5100
+  }
+}

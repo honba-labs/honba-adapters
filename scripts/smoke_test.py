@@ -80,9 +80,7 @@ async def run_smoke_test(args: argparse.Namespace) -> int:
     print(f"\n2. Connecting to {adapter_name}...")
     try:
         session = await adapter.connect()
-        print(
-            f"   [OK] Connected. Session user: {session.user_id}, mode: {session.mode.value}"
-        )
+        print(f"   [OK] Connected. Session user: {session.user_id}, mode: {session.mode.value}")
     except Exception as e:  # noqa: BLE001
         print(f"[FAIL] Connection failed: {e}", file=sys.stderr)
         return 1
@@ -127,9 +125,7 @@ async def run_smoke_test(args: argparse.Namespace) -> int:
             report = await adapter.place_order(
                 intent, product=Product.DELIVERY, client_order_id=test_order_id
             )
-            print(
-                f"   [OK] Placed order: {report.order_id}, status={report.status.value}"
-            )
+            print(f"   [OK] Placed order: {report.order_id}, status={report.status.value}")
 
             if report.status in (OrderStatus.ACCEPTED, OrderStatus.SUBMITTED):
                 await adapter.cancel_order(report.order_id)
@@ -170,9 +166,7 @@ def main() -> None:
         default="paper",
         help="Execution mode (default: paper)",
     )
-    parser.add_argument(
-        "--symbol", default="RELIANCE", help="Symbol to query (default: RELIANCE)"
-    )
+    parser.add_argument("--symbol", default="RELIANCE", help="Symbol to query (default: RELIANCE)")
     parser.add_argument("--exchange", default="NSE", help="Exchange (default: NSE)")
     parser.add_argument("--client-id", default=None, help="Dhan Client ID")
     parser.add_argument("--api-key", default=None, help="Zerodha API Key")

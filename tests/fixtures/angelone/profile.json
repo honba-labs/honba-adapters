@@ -1,0 +1,10 @@
+{
+  "status": true,
+  "message": "SUCCESS",
+  "errorcode": "",
+  "data": {
+    "clientcode": "ANGEL_TEST_USER",
+    "name": "TEST USER",
+    "email": "test@honba.io"
+  }
+}

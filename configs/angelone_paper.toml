@@ -1,0 +1,12 @@
+[adapter]
+broker = "angelone"
+mode = "paper"
+api_key = "mock_api_key"
+client_code = "mock_client_code"
+password = "mock_password"
+totp_key = "mock_totp_key"
+
+[rate_limits]
+order_rate_limit = 10.0
+data_rate_limit = 10.0
+history_rate_limit = 3.0

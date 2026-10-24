@@ -1,0 +1,14 @@
+{
+  "status": true,
+  "message": "SUCCESS",
+  "errorcode": "",
+  "data": [
+    {
+      "tradingsymbol": "SBIN-EQ",
+      "exchange": "NSE",
+      "quantity": "50",
+      "averageprice": "500.00",
+      "ltp": "550.00"
+    }
+  ]
+}
