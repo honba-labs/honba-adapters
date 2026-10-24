@@ -1,0 +1,1 @@
+Refactor done (declarative+portfolio layers, zerodha Rust crate removed). Pending: trailing_stop Rust/wire parity; replay() fills; migrate other universe/alpha/* strategies.
