@@ -103,9 +103,8 @@ def parse_angelone_timestamp(text: str) -> int:
     match = _ISO_TIMESTAMP_RE.match(s)
     if match:
         date_part, time_part = match.groups()
-        naive = dt.datetime.strptime(f"{date_part} {time_part}", "%Y-%m-%d %H:%M:%S")
-        aware = naive.replace(tzinfo=_IST)
-        return int(aware.timestamp() * 1_000_000_000)
+        naive = dt.datetime.strptime(f"{date_part} {time_part}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=_IST)
+        return int(naive.timestamp() * 1_000_000_000)
 
     time_match = _TIME_ONLY_RE.match(s)
     if time_match:
